@@ -1,0 +1,86 @@
+[package]
+name = "learn_demo"
+version = "0.1.0"
+authors.workspace = true
+categories.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+license.workspace = true
+repository.workspace = true
+description.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+# ============================================================================
+# 第一周：工具链使用
+# ============================================================================
+
+[[bin]]
+name = "01_parser_basics"
+path = "src/skeleton_01_parser_basics.rs"
+
+# 待创建的示例
+# [[bin]]
+# name = "02_linter_basics"
+# path = "src/02_linter_basics.rs"
+
+# [[bin]]
+# name = "03_formatter_basics"
+# path = "src/03_formatter_basics.rs"
+
+# [[bin]]
+# name = "04_transformer_basics"
+# path = "src/04_transformer_basics.rs"
+
+# [[bin]]
+# name = "05_minifier_basics"
+# path = "src/05_minifier_basics.rs"
+
+# ============================================================================
+# 额外示例：Allocator 相关（可选，对应第三周方向 D）
+# ============================================================================
+
+[[bin]]
+name = "allocator_01_basics"
+path = "src/01_allocator_basics.rs"
+
+[[bin]]
+name = "allocator_02_performance"
+path = "src/02_performance_comparison.rs"
+
+[[bin]]
+name = "allocator_03_data_structures"
+path = "src/03_arena_data_structures.rs"
+
+[[bin]]
+name = "allocator_04_memory_management"
+path = "src/04_memory_management.rs"
+
+[[bin]]
+name = "allocator_05_ast_simulation"
+path = "src/05_ast_simulation.rs"
+
+[[bin]]
+name = "allocator_06_advanced"
+path = "src/06_advanced_features.rs"
+
+# ============================================================================
+# 依赖
+# ============================================================================
+
+[dependencies]
+# Oxc 核心 crates
+oxc_allocator = { path = "../crates/oxc_allocator" }
+oxc_parser = { path = "../crates/oxc_parser" }
+oxc_ast = { path = "../crates/oxc_ast" }
+oxc_span = { path = "../crates/oxc_span" }
+oxc_semantic = { path = "../crates/oxc_semantic" }
+oxc_linter = { path = "../crates/oxc_linter" }
+oxc_formatter = { path = "../crates/oxc_formatter" }
+oxc_transformer = { path = "../crates/oxc_transformer" }
+oxc_minifier = { path = "../crates/oxc_minifier" }
+oxc_codegen = { path = "../crates/oxc_codegen" }
+oxc_data_structures = { path = "../crates/oxc_data_structures" }

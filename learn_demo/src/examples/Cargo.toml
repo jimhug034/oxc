@@ -1,0 +1,70 @@
+[package]
+name = "oxc_learning_examples"
+version = "0.1.0"
+edition = "2024"
+
+# 独立的 workspace，不继承父级
+[workspace]
+
+# 示例程序列表
+[[bin]]
+name = "01_allocator_basics"
+path = "01_allocator_basics.rs"
+
+[[bin]]
+name = "02_performance_comparison"
+path = "02_performance_comparison.rs"
+
+[[bin]]
+name = "03_arena_data_structures"
+path = "03_arena_data_structures.rs"
+
+[[bin]]
+name = "04_memory_management"
+path = "04_memory_management.rs"
+
+[[bin]]
+name = "05_ast_simulation"
+path = "05_ast_simulation.rs"
+
+[[bin]]
+name = "06_advanced_features"
+path = "06_advanced_features.rs"
+
+# Rust 概念学习示例
+[[bin]]
+name = "rust_concepts_01_lifetimes"
+path = "rust_concepts_01_lifetimes.rs"
+
+[[bin]]
+name = "rust_concepts_02_unsafe"
+path = "rust_concepts_02_unsafe.rs"
+
+[[bin]]
+name = "rust_concepts_03_generics_traits"
+path = "rust_concepts_03_generics_traits.rs"
+
+[[bin]]
+name = "rust_concepts_04_smart_pointers"
+path = "rust_concepts_04_smart_pointers.rs"
+
+[[bin]]
+name = "rust_concepts_05_advanced_traits"
+path = "rust_concepts_05_advanced_traits.rs"
+
+[[bin]]
+name = "rust_concepts_06_macros"
+path = "rust_concepts_06_macros.rs"
+
+[[bin]]
+name = "rust_concepts_07_performance"
+path = "rust_concepts_07_performance.rs"
+
+# 设计分析示例
+[[bin]]
+name = "oxc_allocator_design_analysis"
+path = "oxc_allocator_design_analysis.rs"
+
+[dependencies]
+oxc_allocator = { path = "../../crates/oxc_allocator" }
+oxc_data_structures = { path = "../../crates/oxc_data_structures" }
