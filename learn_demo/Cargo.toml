@@ -20,7 +20,7 @@ workspace = true
 
 [[bin]]
 name = "01_parser_basics"
-path = "src/skeleton_01_parser_basics.rs"
+path = "src/01_parser_basics.rs"
 
 # 待创建的示例
 # [[bin]]

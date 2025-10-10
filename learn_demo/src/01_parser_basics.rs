@@ -37,9 +37,7 @@ fn example_1_variable_declaration() {
 
     let allocator = Allocator::default();
     let source_code = r#"
-        const name = "Oxc";
-        let version = 1;
-        var count = 0;
+        const sum = 1 + 2 + 3;
     "#;
 
     let source_type = SourceType::default();
