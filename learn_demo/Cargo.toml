@@ -35,9 +35,9 @@ path = "src/01_parser_basics.rs"
 # name = "04_transformer_basics"
 # path = "src/04_transformer_basics.rs"
 
-# [[bin]]
-# name = "05_minifier_basics"
-# path = "src/05_minifier_basics.rs"
+[[bin]]
+name = "05_ast_deep_dive"
+path = "src/05_ast_deep_dive.rs"
 
 # ============================================================================
 # 额外示例：Allocator 相关（可选，对应第三周方向 D）
@@ -76,7 +76,9 @@ path = "src/06_advanced_features.rs"
 oxc_allocator = { path = "../crates/oxc_allocator" }
 oxc_parser = { path = "../crates/oxc_parser" }
 oxc_ast = { path = "../crates/oxc_ast" }
+oxc_ast_visit = { path = "../crates/oxc_ast_visit" }
 oxc_span = { path = "../crates/oxc_span" }
+oxc_syntax = { path = "../crates/oxc_syntax" }
 oxc_semantic = { path = "../crates/oxc_semantic" }
 oxc_linter = { path = "../crates/oxc_linter" }
 oxc_formatter = { path = "../crates/oxc_formatter" }

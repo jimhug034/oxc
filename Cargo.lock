@@ -1337,6 +1337,7 @@ version = "0.1.0"
 dependencies = [
  "oxc_allocator",
  "oxc_ast",
+ "oxc_ast_visit",
  "oxc_codegen",
  "oxc_data_structures",
  "oxc_formatter",
@@ -1345,6 +1346,7 @@ dependencies = [
  "oxc_parser",
  "oxc_semantic",
  "oxc_span",
+ "oxc_syntax",
  "oxc_transformer",
 ]
 
