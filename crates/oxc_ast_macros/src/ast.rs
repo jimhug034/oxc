@@ -8,6 +8,7 @@ use syn::{
 use crate::generated::{derived_traits::get_trait_crate_and_generics, structs::STRUCTS};
 
 /// `#[ast]` macro.
+/// 自定义属性宏的实现
 pub fn ast(item: &mut Item, args: TokenStream) -> TokenStream {
     match item {
         Item::Enum(item) => modify_enum(item),
@@ -18,6 +19,9 @@ pub fn ast(item: &mut Item, args: TokenStream) -> TokenStream {
 
 /// Add `#[repr(...)]` and `#[derive(::oxc_ast_macros::Ast)]` to enum,
 /// and static assertions for `#[generate_derive]`.
+/// 自动添加 #[repr(u8)] 或 #[repr(C, u8)]（确保内存布局可预测）
+/// 自动添加 #[derive(::oxc_ast_macros::Ast)]
+///生成 trait 断言以验证 #[generate_derive] 的正确性
 fn modify_enum(item: &ItemEnum) -> TokenStream {
     // If enum has any non-unit variant, `#[repr(C, u8)]`, otherwise `#[repr(u8)]`
     let repr = if item.variants.iter().any(|var| !matches!(var.fields, Fields::Unit)) {
@@ -44,6 +48,11 @@ pub struct StructDetails {
 /// Add `#[repr(C)]` and `#[derive(::oxc_ast_macros::Ast)]` to struct,
 /// and static assertions for `#[generate_derive]`.
 /// Re-order struct fields if instructed by `STRUCTS` data.
+/// 自动添加 #[repr(C)]（使内存布局遵循 C 语言规范）
+/// 自动添加 #[derive(::oxc_ast_macros::Ast)]
+/// 重排字段顺序以优化内存布局（减少内存占用）
+/// 使用 #[cfg(doc)] 和 #[cfg(not(doc)] 确保文档中显示原始字段顺序
+
 fn modify_struct(item: &mut ItemStruct, args: TokenStream) -> TokenStream {
     let assertions = assert_generated_derives(&item.attrs);
 

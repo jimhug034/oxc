@@ -39,6 +39,7 @@ mod generated {
 /// generated ahead-of-time, rather than in a proc macro.
 ///
 /// Add assertions that traits used in `#[generate_derive(...)]` are in scope.
+/// 宏的第三种：自定义属性宏
 #[proc_macro_attribute]
 pub fn ast(args: TokenStream, input: TokenStream) -> TokenStream {
     let mut input = parse_macro_input!(input as Item);
