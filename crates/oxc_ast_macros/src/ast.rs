@@ -136,6 +136,7 @@ fn reorder_struct_fields(item: &mut ItemStruct, args: TokenStream) -> Result<(),
 ///
 /// If any errors e.g. cannot parse `#[generate_derive]`, or unknown traits, just skip them.
 /// It is the responsibility of `oxc_ast_tools` to raise errors for those.
+/// 把类型标记给离线代码生成器（tasks/ast_tools），让它为所列的 trait 生成实现（如 CloneIn/Dummy/TakeIn/GetSpan/ContentEq/ESTree 等）。本身不直接生成实现。
 fn assert_generated_derives(attrs: &[Attribute]) -> TokenStream {
     let mut assertions = quote!();
     for attr in attrs {

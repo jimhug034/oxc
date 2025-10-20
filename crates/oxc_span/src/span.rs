@@ -76,6 +76,8 @@ pub const SPAN: Span = Span::new(0, 0);
 /// [`expand`]: Span::expand
 /// [`shrink`]: Span::shrink
 /// [`ContentEq`]: crate::ContentEq
+/// 表示源码中的一个字节区间，采用零基偏移，区间为左闭右开[start,end)
+/// 为AST节点提供位置信息，用于切片源码，错误定位、源码映射、以及序列化为ESTree
 #[ast(visit)]
 #[derive(Default, Clone, Copy, Eq, PartialOrd, Ord)]
 #[generate_derive(ESTree)]

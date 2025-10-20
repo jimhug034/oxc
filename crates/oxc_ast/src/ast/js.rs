@@ -36,124 +36,267 @@ use super::{macros::inherit_variants, *};
 #[generate_derive(CloneIn, Dummy, TakeIn, GetSpan, GetSpanMut, ContentEq, ESTree)]
 #[estree(field_order(body, source_type, hashbang, span), via = ProgramConverter)]
 pub struct Program<'a> {
-    pub span: Span,
-    pub source_type: SourceType,
+    pub span: Span, // 位置信息
+    pub source_type: SourceType, // 文件类型
     #[estree(skip)]
-    pub source_text: &'a str,
+    pub source_text: &'a str,  // 源代码 (生命周期标记)
     /// Sorted comments
     #[estree(skip)]
-    pub comments: Vec<'a, Comment>,
-    pub hashbang: Option<Hashbang<'a>>,
+    pub comments: Vec<'a, Comment>,  // 注释
+    pub hashbang: Option<Hashbang<'a>>,  // shebang
     #[estree(prepend_to = body)]
-    pub directives: Vec<'a, Directive<'a>>,
-    pub body: Vec<'a, Statement<'a>>,
-    pub scope_id: Cell<Option<ScopeId>>,
+    pub directives: Vec<'a, Directive<'a>>,  // 指令
+    pub body: Vec<'a, Statement<'a>>,  // 主体语句
+    pub scope_id: Cell<Option<ScopeId>>,  // 作用域 ID
 }
 
 inherit_variants! {
+/// ============================================================================
+/// Expression 枚举 - JavaScript/TypeScript 表达式统一表示
+/// ============================================================================
+///
+/// 这是 Oxc AST 中最核心的枚举之一，代表了所有可能的 JS/TS 表达式类型。
+///
+/// # 核心设计理念
+///
+/// 1. **Tagged Union (带标签联合)**: 使用 Rust 枚举实现类型安全的多态
+///    - 每个变体有唯一的判别值 (discriminant)，从 0 开始递增
+///    - 编译器保证只能是其中一种类型，避免了传统 OOP 的类型检查开销
+///
+/// 2. **Arena 分配 + Box<'a, T>**: 高性能内存管理
+///    - `'a` 生命周期绑定到 arena allocator，所有节点共享同一生命周期
+///    - `Box<'a, T>` 是 arena 上的"胖指针"，避免枚举过大（所有变体大小统一）
+///    - 分配在连续内存上，缓存友好，且支持批量释放（无需逐个 drop）
+///
+/// 3. **变体继承机制 (@inherit)**: 代码复用与类型安全
+///    - 通过 `@inherit MemberExpression` 自动注入成员访问相关的 3 个变体
+///    - 避免重复定义，保持判别值一致性（48-50）
+///    - 允许 `MemberExpression` 作为独立类型使用，也能作为 `Expression` 的子集
+///
+/// 4. **离线代码生成 (#[generate_derive])**: 自动生成大量样板代码
+///    - CloneIn: 在 arena 中克隆节点
+///    - GetSpan/GetSpanMut: 获取源码位置信息
+///    - ContentEq: 语义相等性比较（忽略 span）
+///    - ESTree: 转换为 ESTree JSON 格式（兼容 Babel/ESLint 工具链）
+///
+/// # 性能优化点
+///
+/// - **内存布局可预测**: 通过 `#[repr(C, u8)]` 确保跨平台一致
+/// - **判别值显式指定**: 便于序列化/反序列化，保证稳定性
+/// - **零成本抽象**: 枚举匹配编译为跳转表，无运行时开销
+/// - **Box 统一大小**: 避免枚举膨胀（否则大小 = 最大变体 + tag）
+///
 /// Represents a type for AST nodes corresponding to JavaScript's expressions.
 ///
 /// Inherits variants from [`MemberExpression`]. See [`ast` module docs] for explanation of inheritance.
 ///
 /// [`ast` module docs]: `super`
-#[ast(visit)]
-#[derive(Debug)]
+#[ast(visit)]  // 标记为可访问的 AST 节点，生成 visitor trait 实现
+#[derive(Debug)]  // 标准调试输出
+/// 通过 `#[generate_derive(...)]` 触发离线代码生成器，为该类型生成
+/// CloneIn / Dummy / TakeIn / GetSpan / GetSpanMut / GetAddress / ContentEq / ESTree 实现。
 #[generate_derive(CloneIn, Dummy, TakeIn, GetSpan, GetSpanMut, GetAddress, ContentEq, ESTree)]
 pub enum Expression<'a> {
-    /// See [`BooleanLiteral`] for AST node details.
+    // ========================================================================
+    // 字面量类型 (Literals) - 基础值类型
+    // ========================================================================
+    /// `true` / `false` - 布尔字面量
+    /// 例如: `const flag = true;`
     BooleanLiteral(Box<'a, BooleanLiteral>) = 0,
-    /// See [`NullLiteral`] for AST node details.
+
+    /// `null` - 空值字面量
+    /// 例如: `const value = null;`
     NullLiteral(Box<'a, NullLiteral>) = 1,
-    /// See [`NumericLiteral`] for AST node details.
+
+    /// `42` / `3.14` - 数字字面量（包括整数、浮点数）
+    /// 例如: `const pi = 3.14;`
     NumericLiteral(Box<'a, NumericLiteral<'a>>) = 2,
-    /// See [`BigIntLiteral`] for AST node details.
+
+    /// `123n` - BigInt 字面量（任意精度整数）
+    /// 例如: `const big = 9007199254740991n;`
     BigIntLiteral(Box<'a, BigIntLiteral<'a>>) = 3,
-    /// See [`RegExpLiteral`] for AST node details.
+
+    /// `/pattern/flags` - 正则表达式字面量
+    /// 例如: `const regex = /\d+/g;`
     RegExpLiteral(Box<'a, RegExpLiteral<'a>>) = 4,
-    /// See [`StringLiteral`] for AST node details.
+
+    /// `"hello"` / `'world'` - 字符串字面量
+    /// 例如: `const str = "Hello, World!";`
     StringLiteral(Box<'a, StringLiteral<'a>>) = 5,
-    /// See [`TemplateLiteral`] for AST node details.
+
+    /// `` `template ${expr}` `` - 模板字面量（支持插值）
+    /// 例如: `const msg = \`Hello, ${name}!\`;`
     TemplateLiteral(Box<'a, TemplateLiteral<'a>>) = 6,
 
-    /// See [`IdentifierReference`] for AST node details.
+    // ========================================================================
+    // 标识符与引用 (Identifiers & References)
+    // ========================================================================
+    /// `varName` - 标识符引用（变量、函数等的使用）
+    /// 例如: `console.log(x);` 中的 `x`
+    /// 注意: 包含 reference_id 用于语义分析（作用域绑定）
     Identifier(Box<'a, IdentifierReference<'a>>) = 7,
 
-    /// See [`MetaProperty`] for AST node details.
+    // ========================================================================
+    // 特殊关键字 (Special Keywords)
+    // ========================================================================
+    /// `new.target` / `import.meta` - 元属性
+    /// 例如: `function F() { console.log(new.target); }`
     MetaProperty(Box<'a, MetaProperty<'a>>) = 8,
-    /// See [`Super`] for AST node details.
+
+    /// `super` - 父类引用（用于访问父类方法/属性）
+    /// 例如: `super.method()` 或 `super[key]`
     Super(Box<'a, Super>) = 9,
 
-    /// See [`ArrayExpression`] for AST node details.
+    // ========================================================================
+    // 复合表达式 (Complex Expressions)
+    // ========================================================================
+    /// `[1, 2, 3]` - 数组字面量
+    /// 例如: `const arr = [1, ...rest, 2];`
     ArrayExpression(Box<'a, ArrayExpression<'a>>) = 10,
-    /// See [`ArrowFunctionExpression`] for AST node details.
+
+    /// `(x) => x * 2` - 箭头函数表达式
+    /// 例如: `const double = (x) => x * 2;`
     ArrowFunctionExpression(Box<'a, ArrowFunctionExpression<'a>>) = 11,
-    /// See [`AssignmentExpression`] for AST node details.
+
+    /// `x = 10` - 赋值表达式
+    /// 例如: `a += 5;` / `obj.prop = 'value';`
     AssignmentExpression(Box<'a, AssignmentExpression<'a>>) = 12,
-    /// See [`AwaitExpression`] for AST node details.
+
+    /// `await promise` - 等待异步操作（仅在 async 函数中）
+    /// 例如: `const result = await fetch(url);`
     AwaitExpression(Box<'a, AwaitExpression<'a>>) = 13,
-    /// See [`BinaryExpression`] for AST node details.
+
+    /// `a + b` / `x > 5` - 二元运算表达式
+    /// 例如: `const sum = a + b;` / `if (x > 5) {...}`
     BinaryExpression(Box<'a, BinaryExpression<'a>>) = 14,
-    /// See [`CallExpression`] for AST node details.
+
+    /// `func(arg1, arg2)` - 函数调用表达式
+    /// 例如: `console.log('Hello');` / `Math.max(1, 2, 3);`
     CallExpression(Box<'a, CallExpression<'a>>) = 15,
-    /// See [`ChainExpression`] for AST node details.
+
+    /// `obj?.prop?.method?.()` - 可选链表达式（避免 null/undefined 错误）
+    /// 例如: `user?.profile?.name`
     ChainExpression(Box<'a, ChainExpression<'a>>) = 16,
-    /// See [`Class`] for AST node details.
+
+    /// `class { ... }` - 类表达式（匿名或命名）
+    /// 例如: `const MyClass = class { constructor() {} };`
     ClassExpression(Box<'a, Class<'a>>) = 17,
-    /// See [`ConditionalExpression`] for AST node details.
+
+    /// `condition ? true : false` - 三元条件表达式
+    /// 例如: `const result = x > 0 ? 'positive' : 'negative';`
     ConditionalExpression(Box<'a, ConditionalExpression<'a>>) = 18,
-    /// See [`Function`] for AST node details.
+
+    /// `function() { ... }` - 函数表达式
+    /// 例如: `const fn = function(x) { return x * 2; };`
+    /// 注意: #[visit(args(flags = ScopeFlags::Function))] 标记需要创建新作用域
     #[visit(args(flags = ScopeFlags::Function))]
     FunctionExpression(Box<'a, Function<'a>>) = 19,
-    /// See [`ImportExpression`] for AST node details.
+
+    /// `import('module')` - 动态导入表达式
+    /// 例如: `const module = await import('./utils.js');`
     ImportExpression(Box<'a, ImportExpression<'a>>) = 20,
-    /// See [`LogicalExpression`] for AST node details.
+
+    /// `a && b` / `a || b` / `a ?? b` - 逻辑运算表达式
+    /// 例如: `const value = input || 'default';`
     LogicalExpression(Box<'a, LogicalExpression<'a>>) = 21,
-    /// See [`NewExpression`] for AST node details.
+
+    /// `new Constructor(args)` - 构造函数调用
+    /// 例如: `const date = new Date();`
     NewExpression(Box<'a, NewExpression<'a>>) = 22,
-    /// See [`ObjectExpression`] for AST node details.
+
+    /// `{ key: value, ...spread }` - 对象字面量
+    /// 例如: `const obj = { name: 'John', age: 30 };`
     ObjectExpression(Box<'a, ObjectExpression<'a>>) = 23,
-    /// See [`ParenthesizedExpression`] for AST node details.
+
+    /// `(expr)` - 带括号的表达式
+    /// 例如: `const result = (a + b) * c;`
     ParenthesizedExpression(Box<'a, ParenthesizedExpression<'a>>) = 24,
-    /// See [`SequenceExpression`] for AST node details.
+
+    /// `expr1, expr2, expr3` - 序列表达式（逗号运算符）
+    /// 例如: `for (i = 0, j = 10; i < j; i++, j--) {...}`
     SequenceExpression(Box<'a, SequenceExpression<'a>>) = 25,
-    /// See [`TaggedTemplateExpression`] for AST node details.
+
+    /// `` tag`template ${expr}` `` - 标签模板表达式
+    /// 例如: `styled.div\`color: red;\`;`
     TaggedTemplateExpression(Box<'a, TaggedTemplateExpression<'a>>) = 26,
-    /// See [`ThisExpression`] for AST node details.
+
+    /// `this` - 当前上下文引用
+    /// 例如: `this.property` / `() => this.method()`
     ThisExpression(Box<'a, ThisExpression>) = 27,
-    /// See [`UnaryExpression`] for AST node details.
+
+    /// `typeof x` / `!flag` / `+num` - 一元运算表达式
+    /// 例如: `typeof variable` / `delete obj.prop` / `-value`
     UnaryExpression(Box<'a, UnaryExpression<'a>>) = 28,
-    /// See [`UpdateExpression`] for AST node details.
+
+    /// `++i` / `i++` / `--i` / `i--` - 自增/自减表达式
+    /// 例如: `counter++` / `--index`
     UpdateExpression(Box<'a, UpdateExpression<'a>>) = 29,
-    /// See [`YieldExpression`] for AST node details.
+
+    /// `yield value` / `yield* iterable` - 生成器产出（仅在 generator 中）
+    /// 例如: `function* gen() { yield 1; yield* [2, 3]; }`
     YieldExpression(Box<'a, YieldExpression<'a>>) = 30,
-    /// See [`PrivateInExpression`] for AST node details.
+
+    /// `#field in obj` - 私有字段存在检查
+    /// 例如: `#privateField in instance`
     PrivateInExpression(Box<'a, PrivateInExpression<'a>>) = 31,
 
-    /// See [`JSXElement`] for AST node details.
+    // ========================================================================
+    // JSX 支持 (React/JSX Syntax)
+    // ========================================================================
+    /// `<div>content</div>` - JSX 元素
+    /// 例如: `const element = <MyComponent prop="value" />;`
     JSXElement(Box<'a, JSXElement<'a>>) = 32,
-    /// See [`JSXFragment`] for AST node details.
+
+    /// `<>content</>` - JSX 片段（无需包裹元素）
+    /// 例如: `return <><h1>Title</h1><p>Text</p></>;`
     JSXFragment(Box<'a, JSXFragment<'a>>) = 33,
 
-    /// See [`TSAsExpression`] for AST node details.
+    // ========================================================================
+    // TypeScript 类型断言/转换 (TypeScript Type Assertions)
+    // ========================================================================
+    /// `value as Type` - TypeScript as 断言
+    /// 例如: `const str = value as string;`
     TSAsExpression(Box<'a, TSAsExpression<'a>>) = 34,
-    /// See [`TSSatisfiesExpression`] for AST node details.
+
+    /// `value satisfies Type` - TypeScript 类型验证（不改变类型）
+    /// 例如: `const config = { ... } satisfies Config;`
     TSSatisfiesExpression(Box<'a, TSSatisfiesExpression<'a>>) = 35,
-    /// See [`TSTypeAssertion`] for AST node details.
+
+    /// `<Type>value` - TypeScript 旧式类型断言
+    /// 例如: `const str = <string>value;`
     TSTypeAssertion(Box<'a, TSTypeAssertion<'a>>) = 36,
-    /// See [`TSNonNullExpression`] for AST node details.
+
+    /// `value!` - TypeScript 非空断言（告诉编译器不为 null/undefined）
+    /// 例如: `const el = document.getElementById('app')!;`
     TSNonNullExpression(Box<'a, TSNonNullExpression<'a>>) = 37,
-    /// See [`TSInstantiationExpression`] for AST node details.
+
+    /// `fn<Type>()` - TypeScript 泛型实例化
+    /// 例如: `identity<number>(42);`
     TSInstantiationExpression(Box<'a, TSInstantiationExpression<'a>>) = 38,
-    /// See [`V8IntrinsicExpression`] for AST node details.
+
+    /// `%IntrinsicFunction()` - V8 引擎内置函数（非标准）
+    /// 例如: `%DebugPrint(obj)` （仅 V8 调试模式）
     V8IntrinsicExpression(Box<'a, V8IntrinsicExpression<'a>>) = 39,
 
-    // `MemberExpression` variants added here by `inherit_variants!` macro
+    // ========================================================================
+    // 变体继承：成员访问表达式 (Inherited from MemberExpression)
+    // ========================================================================
+    // 通过 `inherit_variants!` 宏自动注入以下 3 个变体：
+    //   - ComputedMemberExpression (48): `obj[key]` 计算属性访问
+    //   - StaticMemberExpression (49):  `obj.prop` 静态属性访问
+    //   - PrivateFieldExpression (50):  `obj.#field` 私有字段访问
+    //
+    // 为什么要继承而不是直接定义？
+    // 1. MemberExpression 可以作为独立类型使用（如函数参数类型）
+    // 2. 避免重复定义，保持判别值连续性
+    // 3. 允许类型层级：Expression > MemberExpression > 具体变体
     @inherit MemberExpression
 }
 }
 
 /// Macro for matching `Expression`'s variants.
 /// Includes `MemberExpression`'s variants.
+/// 用于一次性匹配所有表达式变体（包含成员表达式变体），便于宏/模式匹配统一覆盖。
 #[macro_export]
 macro_rules! match_expression {
     ($ty:ident) => {
