@@ -281,7 +281,7 @@ impl ExplicitModuleBoundaryTypes {
                 // walk::walk_variable_declarator(&mut checker, it)
             }
             AstKind::Function(it) => {
-                walk::walk_function(checker, it, ScopeFlags::Function);
+                checker.visit_function(it, ScopeFlags::Function);
             }
             AstKind::Class(it) => walk::walk_class(checker, it),
             _ => {}
@@ -1165,6 +1165,15 @@ mod test {
             ),
             (
                 "
+            function App(): number {
+              return 42;
+            }
+            export default App;
+            ",
+                None,
+            ),
+            (
+                "
             const test = (): void => {
               return;
             };
@@ -1707,6 +1716,15 @@ mod test {
                 "
             const foo = arg => arg;
             export default foo;
+            ",
+                None,
+            ),
+            (
+                "
+            function App() {
+              return 42;
+            }
+            export default App;
             ",
                 None,
             ),
