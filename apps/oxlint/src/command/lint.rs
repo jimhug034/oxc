@@ -135,21 +135,21 @@ impl LintCommand {
     /// 详见：<https://docs.rs/rayon/1.11.0/rayon/struct.ThreadPoolBuilder.html#method.num_threads>
     #[expect(clippy::print_stderr)]
     fn init_rayon_thread_pool(threads: Option<usize>) {
-        // Always initialize thread pool, even if using default thread count,
-        // to ensure thread pool's thread count is locked after this point.
-        // `rayon::current_num_threads()` will always return the same number after this point.
+        // ====== 为什么总是初始化线程池？======
+        // 即使使用默认线程数，我们也要显式初始化，原因如下：
         //
-        // If you don't initialize the global thread pool explicitly, or don't specify `num_threads`,
-        // Rayon will initialize the thread pool when it's first used, with a thread count of
-        // `std::thread::available_parallelism()`, and that thread count won't change thereafter.
-        // So we don't *need* to initialize the thread pool here if we just want the default thread count.
+        // 1. **锁定线程数**：确保 `rayon::current_num_threads()` 在初始化后始终返回相同的值
         //
-        // However, Rayon's docs state that:
-        // > In the future, the default behavior may change to dynamically add or remove threads as needed.
-        // https://docs.rs/rayon/1.11.0/rayon/struct.ThreadPoolBuilder.html#method.num_threads
+        // 2. **显式行为**：如果不显式初始化，Rayon 会在首次使用时自动初始化，
+        //    使用 `std::thread::available_parallelism()` 作为线程数，之后也不会改变。
+        //    所以从功能上说，不初始化也可以得到默认行为。
         //
-        // To ensure we continue to have a "locked" thread count, even after future Rayon upgrades,
-        // we always initialize the thread pool and explicitly specify thread count here.
+        // 3. **未来兼容性**：但是 Rayon 的文档指出：
+        //    > 未来的默认行为可能会改为根据需要动态增加或删除线程。
+        //    参考：https://docs.rs/rayon/1.11.0/rayon/struct.ThreadPoolBuilder.html#method.num_threads
+        //
+        // 4. **稳定保证**：为了确保即使 Rayon 升级后也能保持"锁定"的线程数，
+        //    我们总是显式初始化并明确指定线程数。
 
         // 确定要使用的线程数
         let thread_count = if let Some(thread_count) = threads
@@ -367,37 +367,122 @@ impl FixOptions {
     }
 }
 
-/// Handle Warnings
+/// 警告处理选项
+///
+/// 控制如何处理警告级别的 lint 消息。
 #[derive(Debug, Clone, Bpaf)]
 pub struct WarningOptions {
-    /// Disable reporting on warnings, only errors are reported
+    /// 静默警告模式 - 只报告错误
+    ///
+    /// 使用 `--quiet` 标志启用。
+    /// 在此模式下，警告级别的问题不会显示，只显示错误级别的问题。
+    ///
+    /// # 使用场景
+    /// - CI/CD 中只关心错误，忽略警告
+    /// - 逐步修复问题时，先专注于错误
+    ///
+    /// # 示例
+    /// ```bash
+    /// oxlint --quiet src/
+    /// ```
     #[bpaf(switch, hide_usage)]
     pub quiet: bool,
 
-    /// Ensure warnings produce a non-zero exit code
+    /// 将警告视为错误
+    ///
+    /// 使用 `--deny-warnings` 标志启用。
+    /// 确保警告也会产生非零退出码，导致 CI 失败。
+    ///
+    /// # 使用场景
+    /// - 强制代码质量标准
+    /// - CI/CD 中不允许任何警告
+    ///
+    /// # 示例
+    /// ```bash
+    /// oxlint --deny-warnings src/
+    /// ```
     #[bpaf(switch, hide_usage)]
     pub deny_warnings: bool,
 
-    /// Specify a warning threshold,
-    /// which can be used to force exit with an error status if there are too many warning-level rule violations in your project
+    /// 警告阈值
+    ///
+    /// 指定一个警告数量的上限。如果警告数量超过此阈值，
+    /// 将以错误状态退出（非零退出码）。
+    ///
+    /// # 使用场景
+    /// - 逐步减少项目中的警告数量
+    /// - 防止警告数量继续增长
+    ///
+    /// # 示例
+    /// ```bash
+    /// # 最多允许 10 个警告
+    /// oxlint --max-warnings 10 src/
+    ///
+    /// # 不允许任何警告（等同于 --deny-warnings）
+    /// oxlint --max-warnings 0 src/
+    /// ```
     #[bpaf(argument("INT"), hide_usage)]
     pub max_warnings: Option<usize>,
 }
 
-/// Output
+/// 输出选项
+///
+/// 控制 lint 结果的输出格式。
 #[derive(Debug, Clone, Bpaf)]
 pub struct OutputOptions {
-    /// Use a specific output format. Possible values:
-    /// `checkstyle`, `default`, `github`, `gitlab`, `json`, `junit`, `stylish`, `unix`
+    /// 指定输出格式
+    ///
+    /// 可选值：
+    /// - `default` - 默认格式（彩色、易读）
+    /// - `stylish` - 类似 ESLint 的 stylish 格式
+    /// - `json` - JSON 格式（适合程序解析）
+    /// - `checkstyle` - Checkstyle XML 格式
+    /// - `github` - GitHub Actions 注释格式
+    /// - `gitlab` - GitLab CI 格式
+    /// - `junit` - JUnit XML 格式
+    /// - `unix` - Unix 风格格式（文件:行:列: 消息）
+    ///
+    /// # 使用场景
+    /// - `json`: 与其他工具集成，解析结果
+    /// - `github`/`gitlab`: CI/CD 集成，显示注释
+    /// - `junit`: 生成测试报告
+    /// - `unix`: 与 Vim/Emacs 等编辑器集成
+    ///
+    /// # 示例
+    /// ```bash
+    /// # JSON 格式输出
+    /// oxlint -f json src/ > results.json
+    ///
+    /// # GitHub Actions 格式
+    /// oxlint --format github src/
+    /// ```
     #[bpaf(long, short, fallback(OutputFormat::Default), hide_usage)]
     pub format: OutputFormat,
 }
 
-/// Enable Plugins
+/// 插件启用/禁用选项
+///
+/// Oxlint 支持多个插件，每个插件提供一组相关的 lint 规则。
+///
+/// # 默认启用的插件
+/// - `unicorn` - ESLint 插件 unicorn 的规则
+/// - `oxc` - Oxc 独有的规则
+/// - `typescript` - TypeScript 相关规则
+///
+/// # 默认禁用的插件（需要明确启用）
+/// - `react`, `jest`, `vitest`, `jsx-a11y`, `nextjs`, `react-perf`
+/// - `import`, `jsdoc`, `promise`, `node`, `regex`, `vue`
 #[expect(clippy::struct_field_names)]
 #[derive(Debug, Default, Clone, Bpaf)]
 pub struct EnablePlugins {
-    /// Disable unicorn plugin, which is turned on by default
+    /// 禁用 Unicorn 插件（默认启用）
+    ///
+    /// Unicorn 插件提供了许多改进代码质量的规则。
+    ///
+    /// # 使用
+    /// ```bash
+    /// oxlint --disable-unicorn-plugin src/
+    /// ```
     #[bpaf(
         long("disable-unicorn-plugin"),
         flag(OverrideToggle::Disable, OverrideToggle::NotSet),
@@ -405,7 +490,14 @@ pub struct EnablePlugins {
     )]
     pub unicorn_plugin: OverrideToggle,
 
-    /// Disable oxc unique rules, which is turned on by default
+    /// 禁用 Oxc 独有规则插件（默认启用）
+    ///
+    /// Oxc 插件包含一些 Oxc 项目独有的规则。
+    ///
+    /// # 使用
+    /// ```bash
+    /// oxlint --disable-oxc-plugin src/
+    /// ```
     #[bpaf(
         long("disable-oxc-plugin"),
         flag(OverrideToggle::Disable, OverrideToggle::NotSet),
@@ -413,7 +505,14 @@ pub struct EnablePlugins {
     )]
     pub oxc_plugin: OverrideToggle,
 
-    /// Disable TypeScript plugin, which is turned on by default
+    /// 禁用 TypeScript 插件（默认启用）
+    ///
+    /// TypeScript 插件提供 TypeScript 特定的规则。
+    ///
+    /// # 使用
+    /// ```bash
+    /// oxlint --disable-typescript-plugin src/
+    /// ```
     #[bpaf(
         long("disable-typescript-plugin"),
         flag(OverrideToggle::Disable, OverrideToggle::NotSet),
@@ -421,52 +520,137 @@ pub struct EnablePlugins {
     )]
     pub typescript_plugin: OverrideToggle,
 
-    /// Enable the experimental import plugin and detect ESM problems.
-    /// It is recommended to use along side with the `--tsconfig` option.
+    /// 启用 Import 插件（实验性）
+    ///
+    /// 检测 ESM 导入/导出相关的问题。
+    /// 建议配合 `--tsconfig` 选项使用，以支持路径别名和项目引用。
+    ///
+    /// # 使用
+    /// ```bash
+    /// oxlint --import-plugin --tsconfig tsconfig.json src/
+    /// ```
     #[bpaf(flag(OverrideToggle::Enable, OverrideToggle::NotSet), hide_usage)]
     pub import_plugin: OverrideToggle,
 
-    /// Enable react plugin, which is turned off by default
+    /// 启用 React 插件（默认禁用）
+    ///
+    /// 检测 React 代码中的问题。
+    ///
+    /// # 使用
+    /// ```bash
+    /// oxlint --react-plugin src/
+    /// ```
     #[bpaf(flag(OverrideToggle::Enable, OverrideToggle::NotSet), hide_usage)]
     pub react_plugin: OverrideToggle,
 
-    /// Enable the experimental jsdoc plugin and detect JSDoc problems
+    /// 启用 JSDoc 插件（实验性）
+    ///
+    /// 检测 JSDoc 注释中的问题。
+    ///
+    /// # 使用
+    /// ```bash
+    /// oxlint --jsdoc-plugin src/
+    /// ```
     #[bpaf(flag(OverrideToggle::Enable, OverrideToggle::NotSet), hide_usage)]
     pub jsdoc_plugin: OverrideToggle,
 
-    /// Enable the Jest plugin and detect test problems
+    /// 启用 Jest 插件（默认禁用）
+    ///
+    /// 检测 Jest 测试代码中的问题。
+    ///
+    /// # 使用
+    /// ```bash
+    /// oxlint --jest-plugin tests/
+    /// ```
     #[bpaf(flag(OverrideToggle::Enable, OverrideToggle::NotSet), hide_usage)]
     pub jest_plugin: OverrideToggle,
 
-    /// Enable the Vitest plugin and detect test problems
+    /// 启用 Vitest 插件（默认禁用）
+    ///
+    /// 检测 Vitest 测试代码中的问题。
+    /// 注意：启用此插件会自动启用 Jest 插件（Vitest 复用 Jest 规则）。
+    ///
+    /// # 使用
+    /// ```bash
+    /// oxlint --vitest-plugin tests/
+    /// ```
     #[bpaf(flag(OverrideToggle::Enable, OverrideToggle::NotSet), hide_usage)]
     pub vitest_plugin: OverrideToggle,
 
-    /// Enable the JSX-a11y plugin and detect accessibility problems
+    /// 启用 JSX-a11y 插件（默认禁用）
+    ///
+    /// 检测 JSX 中的可访问性问题。
+    ///
+    /// # 使用
+    /// ```bash
+    /// oxlint --jsx-a11y-plugin src/
+    /// ```
     #[bpaf(flag(OverrideToggle::Enable, OverrideToggle::NotSet), hide_usage)]
     pub jsx_a11y_plugin: OverrideToggle,
 
-    /// Enable the Next.js plugin and detect Next.js problems
+    /// 启用 Next.js 插件（默认禁用）
+    ///
+    /// 检测 Next.js 项目中的问题。
+    ///
+    /// # 使用
+    /// ```bash
+    /// oxlint --nextjs-plugin src/
+    /// ```
     #[bpaf(flag(OverrideToggle::Enable, OverrideToggle::NotSet), hide_usage)]
     pub nextjs_plugin: OverrideToggle,
 
-    /// Enable the React performance plugin and detect rendering performance problems
+    /// 启用 React 性能插件（默认禁用）
+    ///
+    /// 检测 React 渲染性能相关的问题。
+    ///
+    /// # 使用
+    /// ```bash
+    /// oxlint --react-perf-plugin src/
+    /// ```
     #[bpaf(flag(OverrideToggle::Enable, OverrideToggle::NotSet), hide_usage)]
     pub react_perf_plugin: OverrideToggle,
 
-    /// Enable the promise plugin and detect promise usage problems
+    /// 启用 Promise 插件（默认禁用）
+    ///
+    /// 检测 Promise 使用中的问题。
+    ///
+    /// # 使用
+    /// ```bash
+    /// oxlint --promise-plugin src/
+    /// ```
     #[bpaf(flag(OverrideToggle::Enable, OverrideToggle::NotSet), hide_usage)]
     pub promise_plugin: OverrideToggle,
 
-    /// Enable the node plugin and detect node usage problems
+    /// 启用 Node.js 插件（默认禁用）
+    ///
+    /// 检测 Node.js 代码中的问题。
+    ///
+    /// # 使用
+    /// ```bash
+    /// oxlint --node-plugin src/
+    /// ```
     #[bpaf(flag(OverrideToggle::Enable, OverrideToggle::NotSet), hide_usage)]
     pub node_plugin: OverrideToggle,
 
-    /// Enable the regex plugin and detect regex usage problems
+    /// 启用正则表达式插件（默认禁用）
+    ///
+    /// 检测正则表达式使用中的问题。
+    ///
+    /// # 使用
+    /// ```bash
+    /// oxlint --regex-plugin src/
+    /// ```
     #[bpaf(flag(OverrideToggle::Enable, OverrideToggle::NotSet), hide_usage)]
     pub regex_plugin: OverrideToggle,
 
-    /// Enable the vue plugin and detect vue usage problems
+    /// 启用 Vue 插件（默认禁用）
+    ///
+    /// 检测 Vue.js 代码中的问题。
+    ///
+    /// # 使用
+    /// ```bash
+    /// oxlint --vue-plugin src/
+    /// ```
     #[bpaf(flag(OverrideToggle::Enable, OverrideToggle::NotSet), hide_usage)]
     pub vue_plugin: OverrideToggle,
 }
@@ -591,22 +775,65 @@ impl EnablePlugins {
     }
 }
 
+/// 报告未使用的指令
+///
+/// 控制是否报告不必要的 lint 控制注释（例如禁用了实际上不会触发的规则）。
+///
+/// # 两种形式
+///
+/// 1. **不带严重性** - 使用默认严重性（警告）
+/// 2. **带严重性** - 可以指定 `allow`/`warn`/`deny`
+///
+/// # 什么是未使用的指令？
+///
+/// 当你写了类似 `// eslint-disable-line no-console` 但那一行实际上
+/// 并没有触发 `no-console` 规则时，这个指令就是未使用的。
+///
+/// # 使用场景
+///
+/// - 清理不必要的禁用注释
+/// - 发现过时的规则名称
+/// - 保持代码库整洁
 #[derive(Debug, Clone, PartialEq, Eq, Bpaf)]
 pub enum ReportUnusedDirectives {
+    /// 报告未使用的禁用指令（不指定严重性）
+    ///
+    /// 当某一行的 `// eslint-disable-line` 注释实际上没有禁用任何规则时报告。
+    ///
+    /// # 使用
+    /// ```bash
+    /// oxlint --report-unused-disable-directives src/
+    /// ```
+    ///
+    /// 更多信息：<https://eslint.org/docs/latest/use/command-line-interface#--report-unused-disable-directives>
     WithoutSeverity(
-        /// Report directive comments like `// eslint-disable-line` when no errors would have been reported on that line anyway.
-        // More information at <https://eslint.org/docs/latest/use/command-line-interface#--report-unused-disable-directives>
         #[bpaf(long("report-unused-disable-directives"), switch, hide_usage)]
         bool,
     ),
+    /// 报告未使用的禁用指令（指定严重性级别）
+    ///
+    /// 与 `--report-unused-disable-directives` 相同，但允许指定报告的严重性级别。
+    /// 注意：两个选项只能同时使用一个。
+    ///
+    /// # 可选值
+    /// - `allow` - 允许（不报告）
+    /// - `warn` - 警告
+    /// - `deny`/`error` - 错误
+    ///
+    /// # 使用
+    /// ```bash
+    /// # 将未使用的指令作为错误报告
+    /// oxlint --report-unused-disable-directives-severity error src/
+    ///
+    /// # 只作为警告
+    /// oxlint --report-unused-disable-directives-severity warn src/
+    /// ```
     WithSeverity(
-        /// Same as `--report-unused-disable-directives`, but allows you to specify the severity level of the reported errors.
-        /// Only one of these two options can be used at a time.
         #[bpaf(
             long("report-unused-disable-directives-severity"),
             argument::<String>("SEVERITY"),
             guard(|s| AllowWarnDeny::try_from(s.as_str()).is_ok(), "Invalid severity value"),
-            map(|s| AllowWarnDeny::try_from(s.as_str()).unwrap()), // guard ensures try_from will be Ok
+            map(|s| AllowWarnDeny::try_from(s.as_str()).unwrap()), // guard 确保 try_from 一定是 Ok
             optional,
             hide_usage
         )]
@@ -614,9 +841,21 @@ pub enum ReportUnusedDirectives {
     ),
 }
 
-/// Inline Configuration Comments
+/// 内联配置注释选项
+///
+/// 控制代码中的内联配置注释的行为。
+///
+/// # 内联配置注释
+///
+/// 代码中的注释可以控制 lint 行为，例如：
+/// - `// eslint-disable-line no-console`
+/// - `// eslint-disable-next-line no-debugger`
+/// - `/* eslint-disable */`
+///
+/// 此选项控制这些注释的相关行为。
 #[derive(Debug, Clone, Bpaf)]
 pub struct InlineConfigOptions {
+    /// 是否报告未使用的禁用指令
     #[bpaf(external)]
     pub report_unused_directives: ReportUnusedDirectives,
 }

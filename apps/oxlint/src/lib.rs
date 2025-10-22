@@ -50,6 +50,7 @@ pub fn lint(external_linter: Option<ExternalLinter>) -> CliRunResult {
 
     // ====== 阶段 2: 解析命令行参数 ======
     let mut args = std::env::args_os();
+    // by_ref返回迭代器本身的可变引用
     for argument in args.by_ref() {
         println!("{argument:?}");
     }
