@@ -5,6 +5,7 @@
 ## 🎯 学习目标
 
 通过 `oxc_allocator` 的源码，你将学到：
+
 - 生命周期和借用检查器的高级用法
 - 不安全 Rust (unsafe) 的正确使用
 - 内存管理和自定义分配器
@@ -35,6 +36,7 @@ impl Allocator {
 ```
 
 **学习要点**：
+
 - 为什么返回的引用必须与 `&self` 有相同的生命周期？
 - Arena 分配器如何利用生命周期确保内存安全？
 
@@ -81,6 +83,7 @@ impl Allocator {
 ```
 
 **学习要点**：
+
 - 为什么 Arena 分配器不能分配需要 `Drop` 的类型？
 - `const` 块中的编译时断言是如何工作的？
 
@@ -147,6 +150,7 @@ where
 ```
 
 **学习要点**：
+
 - 如何设计灵活的类型转换系统？
 - blanket implementation 的威力
 - 生命周期参数在 trait 中的使用
@@ -219,6 +223,7 @@ impl<'a, T> Deref for Box<'a, T> {
 ```
 
 **学习要点**：
+
 - `NonNull<T>` 的作用和优势
 - `PhantomData` 的用途
 - 如何实现自定义智能指针
@@ -300,6 +305,7 @@ where
 ```
 
 **学习要点**：
+
 - 关联类型 (Associated Types) 的使用
 - 递归的 trait 实现
 - 生命周期参数的传递
@@ -368,6 +374,7 @@ pub fn alloc<T>(&self, val: T) -> &mut T {
 ```
 
 **学习要点**：
+
 - `const` 块中的编译时计算
 - 类型级别的约束检查
 - 宏在类型安全中的应用
@@ -458,6 +465,7 @@ if likely(self.cursor + size <= self.memory.len()) {
 ```
 
 **学习要点**：
+
 - 内联优化的时机和方法
 - 内存对齐的重要性
 - 分支预测优化
@@ -573,16 +581,19 @@ fn compare_allocation_strategies() {
 ## 🎓 学习计划
 
 ### 第1周：基础概念
+
 - **第1-2天**: 生命周期和借用检查器
 - **第3-4天**: 不安全 Rust 和内存管理
 - **第5-7天**: 泛型和 Trait 系统
 
 ### 第2周：高级概念
+
 - **第8-10天**: 智能指针和自定义类型
 - **第11-12天**: 高级 Trait 应用
 - **第13-14天**: 宏编程和元编程
 
 ### 第3周：性能和实践
+
 - **第15-17天**: 性能优化技巧
 - **第18-19天**: 综合项目实践
 - **第20-21天**: 代码审查和最佳实践
@@ -602,5 +613,3 @@ fn compare_allocation_strategies() {
 - [Rust Performance Book](https://nnethercote.github.io/perf-book/)
 
 通过学习 `oxc_allocator`，你不仅会掌握 Arena 分配器的实现，更会深入理解 Rust 的高级特性和性能优化技巧！🚀
-
-

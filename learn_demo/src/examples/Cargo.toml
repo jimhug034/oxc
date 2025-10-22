@@ -5,7 +5,6 @@ edition = "2024"
 
 # 独立的 workspace，不继承父级
 [workspace]
-
 # 示例程序列表
 [[bin]]
 name = "01_allocator_basics"

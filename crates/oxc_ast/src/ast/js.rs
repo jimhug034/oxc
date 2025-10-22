@@ -36,18 +36,18 @@ use super::{macros::inherit_variants, *};
 #[generate_derive(CloneIn, Dummy, TakeIn, GetSpan, GetSpanMut, ContentEq, ESTree)]
 #[estree(field_order(body, source_type, hashbang, span), via = ProgramConverter)]
 pub struct Program<'a> {
-    pub span: Span, // 位置信息
+    pub span: Span,              // 位置信息
     pub source_type: SourceType, // 文件类型
     #[estree(skip)]
-    pub source_text: &'a str,  // 源代码 (生命周期标记)
+    pub source_text: &'a str, // 源代码 (生命周期标记)
     /// Sorted comments
     #[estree(skip)]
-    pub comments: Vec<'a, Comment>,  // 注释
-    pub hashbang: Option<Hashbang<'a>>,  // shebang
+    pub comments: Vec<'a, Comment>, // 注释
+    pub hashbang: Option<Hashbang<'a>>, // shebang
     #[estree(prepend_to = body)]
-    pub directives: Vec<'a, Directive<'a>>,  // 指令
-    pub body: Vec<'a, Statement<'a>>,  // 主体语句
-    pub scope_id: Cell<Option<ScopeId>>,  // 作用域 ID
+    pub directives: Vec<'a, Directive<'a>>, // 指令
+    pub body: Vec<'a, Statement<'a>>, // 主体语句
+    pub scope_id: Cell<Option<ScopeId>>, // 作用域 ID
 }
 
 inherit_variants! {

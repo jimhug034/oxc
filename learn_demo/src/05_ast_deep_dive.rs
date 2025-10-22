@@ -135,11 +135,9 @@ fn describe_expression(expr: &Expression) -> String {
         Expression::CallExpression(call) => {
             format!("函数调用: {}(...)", describe_expression(&call.callee))
         }
-        Expression::StaticMemberExpression(member) => format!(
-            "成员访问: {}.{}",
-            describe_expression(&member.object),
-            member.property.name
-        ),
+        Expression::StaticMemberExpression(member) => {
+            format!("成员访问: {}.{}", describe_expression(&member.object), member.property.name)
+        }
         _ => format!("{:?}", expr),
     }
 }
@@ -422,4 +420,3 @@ fn day7_ast_builder() {
     println!("   恭喜你完成了第一周的学习！");
     println!("   你已经掌握了 oxc_ast 的核心知识。");
 }
-

@@ -1,7 +1,7 @@
 // 第三个示例：Arena 数据结构使用
 // 运行方式：cd learn_docs/examples && cargo run --bin 03_arena_data_structures
 
-use oxc_allocator::{Allocator, Box as ArenaBox, Vec as ArenaVec, HashMap as ArenaHashMap};
+use oxc_allocator::{Allocator, Box as ArenaBox, HashMap as ArenaHashMap, Vec as ArenaVec};
 
 fn main() {
     println!("🏗️ Arena 数据结构使用示例");
@@ -49,11 +49,7 @@ fn arena_box_demo(allocator: &Allocator) {
     }
 
     let person_box = ArenaBox::new_in(
-        Person {
-            name: "Alice".to_string(),
-            age: 30,
-            email: "alice@example.com".to_string(),
-        },
+        Person { name: "Alice".to_string(), age: 30, email: "alice@example.com".to_string() },
         allocator,
     );
 

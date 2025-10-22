@@ -169,12 +169,12 @@ vec.push(item2);
 
 ### 对比表格
 
-| 类型 | 分配位置 | 释放时机 | 使用场景 |
-|------|----------|----------|----------|
-| `Box<T>` | 全局堆 | drop 时 | 通用场景 |
-| `Box<'a, T>` | Arena | allocator drop 时 | AST 节点 |
-| `Vec<T>` | 全局堆 | drop 时 | 通用集合 |
-| `Vec<'a, T>` | Arena | allocator drop 时 | AST 子节点列表 |
+| 类型         | 分配位置 | 释放时机          | 使用场景       |
+| ------------ | -------- | ----------------- | -------------- |
+| `Box<T>`     | 全局堆   | drop 时           | 通用场景       |
+| `Box<'a, T>` | Arena    | allocator drop 时 | AST 节点       |
+| `Vec<T>`     | 全局堆   | drop 时           | 通用集合       |
+| `Vec<'a, T>` | Arena    | allocator drop 时 | AST 子节点列表 |
 
 ---
 
@@ -343,7 +343,7 @@ pub struct Program<'a> {
 
 ### 常见属性
 
-```rust
+````rust
 // 配置项
 #[cfg(test)]         // 仅在测试时编译
 #[cfg(feature = "serde")]  // 根据 feature 条件编译
@@ -360,7 +360,7 @@ pub fn example() {}
 // 警告控制
 #[allow(dead_code)]  // 允许未使用的代码
 #[warn(missing_docs)]  // 警告缺少文档
-```
+````
 
 ---
 
@@ -421,9 +421,9 @@ let data = RefCell::new(vec![1, 2, 3]);
 
 ### 选择指南
 
-| 类型 | 使用场景 | 开销 |
-|------|----------|------|
-| `Cell<T>` | T 实现 Copy，简单值 | 零开销 |
+| 类型         | 使用场景               | 开销       |
+| ------------ | ---------------------- | ---------- |
+| `Cell<T>`    | T 实现 Copy，简单值    | 零开销     |
 | `RefCell<T>` | 需要借用检查的复杂类型 | 运行时开销 |
 
 ---
@@ -535,15 +535,18 @@ let () = x;  // 编译错误会显示 x 的实际类型
 ## 学习资源
 
 ### 官方文档
+
 - [The Rust Book](https://doc.rust-lang.org/book/) - Rust 圣经
 - [Rust by Example](https://doc.rust-lang.org/rust-by-example/) - 示例学习
 - [Standard Library](https://doc.rust-lang.org/std/) - 标准库文档
 
 ### 进阶资源
+
 - [The Rustonomicon](https://doc.rust-lang.org/nomicon/) - 高级 Rust
 - [Rust Design Patterns](https://rust-unofficial.github.io/patterns/) - 设计模式
 
 ### 实用工具
+
 - [Rust Playground](https://play.rust-lang.org/) - 在线运行
 - [crates.io](https://crates.io/) - 包仓库
 - [docs.rs](https://docs.rs/) - 文档集合
@@ -587,24 +590,24 @@ trait Draw {
 
 ### 常用符号
 
-| 符号 | 含义 |
-|------|------|
-| `&` | 借用（引用） |
-| `&mut` | 可变借用 |
-| `*` | 解引用 |
-| `'a` | 生命周期参数 |
-| `<T>` | 泛型参数 |
-| `::` | 路径分隔符 |
-| `?` | 错误传播 |
-| `_` | 占位符/忽略 |
+| 符号   | 含义         |
+| ------ | ------------ |
+| `&`    | 借用（引用） |
+| `&mut` | 可变借用     |
+| `*`    | 解引用       |
+| `'a`   | 生命周期参数 |
+| `<T>`  | 泛型参数     |
+| `::`   | 路径分隔符   |
+| `?`    | 错误传播     |
+| `_`    | 占位符/忽略  |
 
 ---
 
 **提示**: 这个速查表会随着学习进度不断更新。建议保存并经常查阅！
 
 遇到不懂的 Rust 概念时：
+
 1. 先在这里查找
 2. 查看 Rust Book 相关章节
 3. 在 Rust Playground 实验
 4. 在实际代码中应用
-

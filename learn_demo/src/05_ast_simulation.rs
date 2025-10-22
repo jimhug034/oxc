@@ -1,7 +1,7 @@
 // 第五个示例：AST 模拟和实际应用场景
 // 运行方式：cd learn_docs/examples && cargo run --bin 05_ast_simulation
 
-use oxc_allocator::{Allocator, Vec as ArenaVec, HashMap as ArenaHashMap, Box as ArenaBox};
+use oxc_allocator::{Allocator, Box as ArenaBox, HashMap as ArenaHashMap, Vec as ArenaVec};
 use std::time::Instant;
 
 fn main() {
@@ -57,11 +57,7 @@ fn simple_ast_demo() {
             node_type: AstNodeType,
             value: Option<&'a str>,
         ) -> &'a mut Self {
-            allocator.alloc(AstNode {
-                node_type,
-                value,
-                children: ArenaVec::new_in(allocator),
-            })
+            allocator.alloc(AstNode { node_type, value, children: ArenaVec::new_in(allocator) })
         }
 
         fn add_child(&mut self, child: &'a AstNode<'a>) {
@@ -73,20 +69,21 @@ fn simple_ast_demo() {
     println!("   构建 AST: function add(a, b) {{ return a + b; }}");
 
     let program = AstNode::new_in(&allocator, AstNodeType::Program, None);
-    let function = AstNode::new_in(&allocator, AstNodeType::FunctionDeclaration,
-                                   Some(allocator.alloc_str("add")));
-    let param_a = AstNode::new_in(&allocator, AstNodeType::Parameter,
-                                  Some(allocator.alloc_str("a")));
-    let param_b = AstNode::new_in(&allocator, AstNodeType::Parameter,
-                                  Some(allocator.alloc_str("b")));
+    let function = AstNode::new_in(
+        &allocator,
+        AstNodeType::FunctionDeclaration,
+        Some(allocator.alloc_str("add")),
+    );
+    let param_a =
+        AstNode::new_in(&allocator, AstNodeType::Parameter, Some(allocator.alloc_str("a")));
+    let param_b =
+        AstNode::new_in(&allocator, AstNodeType::Parameter, Some(allocator.alloc_str("b")));
     let block = AstNode::new_in(&allocator, AstNodeType::BlockStatement, None);
     let return_stmt = AstNode::new_in(&allocator, AstNodeType::ReturnStatement, None);
-    let binary_expr = AstNode::new_in(&allocator, AstNodeType::BinaryExpression,
-                                      Some(allocator.alloc_str("+")));
-    let id_a = AstNode::new_in(&allocator, AstNodeType::Identifier,
-                               Some(allocator.alloc_str("a")));
-    let id_b = AstNode::new_in(&allocator, AstNodeType::Identifier,
-                               Some(allocator.alloc_str("b")));
+    let binary_expr =
+        AstNode::new_in(&allocator, AstNodeType::BinaryExpression, Some(allocator.alloc_str("+")));
+    let id_a = AstNode::new_in(&allocator, AstNodeType::Identifier, Some(allocator.alloc_str("a")));
+    let id_b = AstNode::new_in(&allocator, AstNodeType::Identifier, Some(allocator.alloc_str("b")));
 
     // 构建树结构
     program.add_child(function);
@@ -161,67 +158,50 @@ fn complex_ast_demo() {
     println!("   构建复杂 AST: class Calculator {{ ... }}");
 
     let mut node_id = 0;
-    let mut next_id = || { node_id += 1; node_id };
+    let mut next_id = || {
+        node_id += 1;
+        node_id
+    };
 
     let mut class_node = ComplexAstNode::new_in(
         &allocator,
         next_id(),
         "ClassDeclaration",
-        Some(allocator.alloc_str("Calculator"))
+        Some(allocator.alloc_str("Calculator")),
     );
-    class_node.set_attribute(
-        allocator.alloc_str("access"),
-        allocator.alloc_str("public")
-    );
+    class_node.set_attribute(allocator.alloc_str("access"), allocator.alloc_str("public"));
 
     // 构造函数
     let mut constructor = ComplexAstNode::new_in(
         &allocator,
         next_id(),
         "MethodDefinition",
-        Some(allocator.alloc_str("constructor"))
+        Some(allocator.alloc_str("constructor")),
     );
-    constructor.set_attribute(
-        allocator.alloc_str("kind"),
-        allocator.alloc_str("constructor")
-    );
+    constructor.set_attribute(allocator.alloc_str("kind"), allocator.alloc_str("constructor"));
 
     // 方法
     let mut add_method = ComplexAstNode::new_in(
         &allocator,
         next_id(),
         "MethodDefinition",
-        Some(allocator.alloc_str("add"))
+        Some(allocator.alloc_str("add")),
     );
-    add_method.set_attribute(
-        allocator.alloc_str("kind"),
-        allocator.alloc_str("method")
-    );
+    add_method.set_attribute(allocator.alloc_str("kind"), allocator.alloc_str("method"));
 
     let mut subtract_method = ComplexAstNode::new_in(
         &allocator,
         next_id(),
         "MethodDefinition",
-        Some(allocator.alloc_str("subtract"))
+        Some(allocator.alloc_str("subtract")),
     );
-    subtract_method.set_attribute(
-        allocator.alloc_str("kind"),
-        allocator.alloc_str("method")
-    );
+    subtract_method.set_attribute(allocator.alloc_str("kind"), allocator.alloc_str("method"));
 
     // 添加参数到方法
-    let param1 = ComplexAstNode::new_in(
-        &allocator,
-        next_id(),
-        "Parameter",
-        Some(allocator.alloc_str("a"))
-    );
-    let param2 = ComplexAstNode::new_in(
-        &allocator,
-        next_id(),
-        "Parameter",
-        Some(allocator.alloc_str("b"))
-    );
+    let param1 =
+        ComplexAstNode::new_in(&allocator, next_id(), "Parameter", Some(allocator.alloc_str("a")));
+    let param2 =
+        ComplexAstNode::new_in(&allocator, next_id(), "Parameter", Some(allocator.alloc_str("b")));
 
     add_method.add_child(param1);
     add_method.add_child(param2);
@@ -250,11 +230,8 @@ struct AstStats {
 
 fn collect_ast_stats<'a>(node: &ComplexAstNode<'a>) -> AstStats {
     let allocator = Allocator::default();
-    let mut stats = AstStats {
-        total_nodes: 0,
-        max_depth: 0,
-        node_types: ArenaVec::new_in(&allocator),
-    };
+    let mut stats =
+        AstStats { total_nodes: 0, max_depth: 0, node_types: ArenaVec::new_in(&allocator) };
 
     collect_stats_recursive(node, 0, &mut stats);
     stats
@@ -322,12 +299,7 @@ fn ast_traversal_demo() {
         }
 
         fn new_identifier(allocator: &'a Allocator, name: &'a str) -> Self {
-            ExprNode {
-                op: "identifier",
-                value: Some(name),
-                left: None,
-                right: None,
-            }
+            ExprNode { op: "identifier", value: Some(name), left: None, right: None }
         }
     }
 
@@ -443,12 +415,39 @@ fn javascript_parsing_simulation() {
     // 模拟词法分析
     let mut tokens = ArenaVec::new_in(&allocator);
     let token_strings = [
-        "function", "fibonacci", "(", "n", ")", "{",
-        "if", "(", "n", "<=", "1", ")", "{",
-        "return", "n", ";", "}",
-        "return", "fibonacci", "(", "n", "-", "1", ")",
-        "+", "fibonacci", "(", "n", "-", "2", ")", ";",
-        "}"
+        "function",
+        "fibonacci",
+        "(",
+        "n",
+        ")",
+        "{",
+        "if",
+        "(",
+        "n",
+        "<=",
+        "1",
+        ")",
+        "{",
+        "return",
+        "n",
+        ";",
+        "}",
+        "return",
+        "fibonacci",
+        "(",
+        "n",
+        "-",
+        "1",
+        ")",
+        "+",
+        "fibonacci",
+        "(",
+        "n",
+        "-",
+        "2",
+        ")",
+        ";",
+        "}",
     ];
 
     for token_str in token_strings {
@@ -464,9 +463,16 @@ fn javascript_parsing_simulation() {
 
     // 创建各种类型的 AST 节点
     let node_types = [
-        "FunctionDeclaration", "Identifier", "Parameter", "BlockStatement",
-        "IfStatement", "BinaryExpression", "ReturnStatement", "CallExpression",
-        "Literal", "ArithmeticExpression"
+        "FunctionDeclaration",
+        "Identifier",
+        "Parameter",
+        "BlockStatement",
+        "IfStatement",
+        "BinaryExpression",
+        "ReturnStatement",
+        "CallExpression",
+        "Literal",
+        "ArithmeticExpression",
     ];
 
     for (i, node_type) in node_types.iter().enumerate() {
@@ -479,14 +485,8 @@ fn javascript_parsing_simulation() {
     // 模拟语义分析
     let start = Instant::now();
     let mut symbol_table = ArenaHashMap::new_in(&allocator);
-    symbol_table.insert(
-        allocator.alloc_str("fibonacci"),
-        allocator.alloc_str("function")
-    );
-    symbol_table.insert(
-        allocator.alloc_str("n"),
-        allocator.alloc_str("parameter")
-    );
+    symbol_table.insert(allocator.alloc_str("fibonacci"), allocator.alloc_str("function"));
+    symbol_table.insert(allocator.alloc_str("n"), allocator.alloc_str("parameter"));
 
     let semantic_time = start.elapsed();
 
@@ -549,11 +549,8 @@ fn ast_performance_comparison() {
     let mut arena_nodes = ArenaVec::new_in(&allocator);
     for i in 0..NODE_COUNT {
         let node_type = allocator.alloc_str(&format!("Node_{}", i));
-        let node = allocator.alloc(ArenaNode {
-            id: i,
-            node_type,
-            children: ArenaVec::new_in(&allocator),
-        });
+        let node =
+            allocator.alloc(ArenaNode { id: i, node_type, children: ArenaVec::new_in(&allocator) });
         arena_nodes.push(node);
     }
 
@@ -565,10 +562,8 @@ fn ast_performance_comparison() {
     println!("   🚀 Arena 方式速度提升: {:.2}x", speedup);
 
     // 内存使用对比
-    let traditional_memory = NODE_COUNT * (
-        std::mem::size_of::<Box<TraditionalNode>>() +
-        std::mem::size_of::<TraditionalNode>()
-    );
+    let traditional_memory = NODE_COUNT
+        * (std::mem::size_of::<Box<TraditionalNode>>() + std::mem::size_of::<TraditionalNode>());
 
     let arena_memory = NODE_COUNT * std::mem::size_of::<ArenaNode>();
 

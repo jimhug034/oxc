@@ -16,6 +16,7 @@
 ### 前置要求
 
 建议在学习这部分之前：
+
 - ✅ 完成第一周和第二周的学习
 - ✅ 对 Rust 基础语法有一定了解
 - ✅ 理解引用和生命周期的基本概念
@@ -24,12 +25,12 @@
 
 ### 核心文档
 
-| 文档 | 说明 | 难度 |
-|-----|------|------|
-| [allocator_学习总结.md](./oxc_allocator_学习总结.md) | 基础概念和使用 | ⭐⭐ |
-| [allocator_设计分析.md](./oxc_allocator设计分析与Rust知识点.md) | 设计原理和实现 | ⭐⭐⭐ |
-| [从allocator学习Rust.md](./从oxc_allocator学习Rust高级概念.md) | Rust 高级特性 | ⭐⭐⭐⭐ |
-| [第一周学习计划.md](./第一周学习计划-allocator入门.md) | 原深入学习计划 | ⭐⭐⭐ |
+| 文档                                                            | 说明           | 难度     |
+| --------------------------------------------------------------- | -------------- | -------- |
+| [allocator_学习总结.md](./oxc_allocator_学习总结.md)            | 基础概念和使用 | ⭐⭐     |
+| [allocator_设计分析.md](./oxc_allocator设计分析与Rust知识点.md) | 设计原理和实现 | ⭐⭐⭐   |
+| [从allocator学习Rust.md](./从oxc_allocator学习Rust高级概念.md)  | Rust 高级特性  | ⭐⭐⭐⭐ |
+| [第一周学习计划.md](./第一周学习计划-allocator入门.md)          | 原深入学习计划 | ⭐⭐⭐   |
 
 ### 代码示例
 
@@ -72,6 +73,7 @@ cargo run --bin allocator_06_advanced
    - 生命周期绑定
 
 **检查点**:
+
 - [ ] 能够创建和使用 Allocator
 - [ ] 理解 Arena 分配的优势
 - [ ] 知道什么场景适合用 Arena
@@ -93,6 +95,7 @@ cargo run --bin allocator_06_advanced
    ```
 
 **检查点**:
+
 - [ ] 理解内部数据结构
 - [ ] 知道分配算法的工作原理
 - [ ] 能够解释性能优势的来源
@@ -114,6 +117,7 @@ cargo run --bin allocator_06_advanced
    - 生命周期协变
 
 **检查点**:
+
 - [ ] 理解 unsafe 代码的使用
 - [ ] 掌握内存布局和对齐
 - [ ] 能够设计类似的分配器
@@ -176,11 +180,13 @@ cargo run --bin allocator_02_performance
 ### 这是高级主题
 
 Allocator 涉及：
+
 - Unsafe Rust
 - 底层内存管理
 - 性能敏感代码
 
 如果感觉太难，可以：
+
 - 先完成前两周的学习
 - 选择其他方向（A、B、C）
 - 以后再回来学习
@@ -188,6 +194,7 @@ Allocator 涉及：
 ### 不是必须掌握
 
 即使不深入学习 Allocator，你仍然可以：
+
 - 使用 Oxc 的其他组件
 - 贡献 Linter 规则
 - 理解 Parser 和 AST
@@ -213,4 +220,3 @@ Allocator 涉及：
 ---
 
 **这是一段有挑战但很有收获的学习之旅！** 💪
-

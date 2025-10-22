@@ -1,7 +1,7 @@
 // 第四个示例：内存管理和生命周期
 // 运行方式：cd learn_docs/examples && cargo run --bin 04_memory_management
 
-use oxc_allocator::{Allocator, Vec as ArenaVec, HashMap as ArenaHashMap};
+use oxc_allocator::{Allocator, HashMap as ArenaHashMap, Vec as ArenaVec};
 use std::time::Instant;
 
 fn main() {
@@ -129,8 +129,7 @@ fn memory_growth_demo() {
 
         let elapsed = start.elapsed();
 
-        println!("     第 {} 轮: 分配 {} 个对象，耗时 {:?}",
-                 round, chunk_size, elapsed);
+        println!("     第 {} 轮: 分配 {} 个对象，耗时 {:?}", round, chunk_size, elapsed);
         println!("       累计分配: ~{} KB", total_allocated / 1024);
     }
 
@@ -172,8 +171,10 @@ fn demonstrate_memory_chunks(allocator: &Allocator) {
     let new_small_addr = more_small_objects[0] as *const i32 as usize;
 
     println!("   地址连续性分析:");
-    println!("     前 10 个对象是否连续: {}",
-             (last_small_addr - first_addr) == 9 * std::mem::size_of::<i32>());
+    println!(
+        "     前 10 个对象是否连续: {}",
+        (last_small_addr - first_addr) == 9 * std::mem::size_of::<i32>()
+    );
     println!("     大对象后的小对象可能在新的内存块中");
 
     if new_small_addr > large_addr + 65536 {
@@ -187,13 +188,7 @@ fn batch_processing_demo() {
     let mut allocator = Allocator::default();
 
     // 模拟处理多个文件的场景
-    let files = [
-        "config.json",
-        "main.js",
-        "utils.ts",
-        "component.tsx",
-        "styles.css"
-    ];
+    let files = ["config.json", "main.js", "utils.ts", "component.tsx", "styles.css"];
 
     for (index, filename) in files.iter().enumerate() {
         println!("   处理文件 {}: {}", index + 1, filename);
@@ -204,13 +199,15 @@ fn batch_processing_demo() {
         let file_content = allocator.alloc_str(&format!("文件内容: {}", filename));
 
         let mut tokens = ArenaVec::new_in(&allocator);
-        for token_id in 0..100 { // 假设每个文件有100个token
+        for token_id in 0..100 {
+            // 假设每个文件有100个token
             let token = allocator.alloc_str(&format!("token_{}_{}", filename, token_id));
             tokens.push(token);
         }
 
         let mut ast_nodes = ArenaVec::new_in(&allocator);
-        for node_id in 0..50 { // 假设每个文件有50个AST节点
+        for node_id in 0..50 {
+            // 假设每个文件有50个AST节点
             let node = allocator.alloc(format!("ASTNode_{}_{}", filename, node_id));
             ast_nodes.push(node);
         }
@@ -218,8 +215,7 @@ fn batch_processing_demo() {
         let processing_time = start.elapsed();
 
         println!("     文件内容: {}", file_content);
-        println!("     生成 {} 个 tokens, {} 个 AST 节点",
-                 tokens.len(), ast_nodes.len());
+        println!("     生成 {} 个 tokens, {} 个 AST 节点", tokens.len(), ast_nodes.len());
         println!("     处理耗时: {:?}", processing_time);
 
         // 处理完一个文件后重置，释放内存供下一个文件使用

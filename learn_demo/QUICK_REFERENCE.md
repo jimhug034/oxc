@@ -65,14 +65,14 @@ cargo run -p oxc --example compiler --features="full" -- test.js
 
 ## 📚 常用目录
 
-| 目录 | 说明 |
-|-----|------|
-| `learn_demo/docs/` | 学习文档 |
-| `learn_demo/src/` | 示例代码 |
-| `crates/oxc_parser/` | Parser 源码 |
-| `crates/oxc_linter/` | Linter 源码 |
-| `crates/oxc_ast/` | AST 定义 |
-| `crates/oxc_semantic/` | Semantic 分析 |
+| 目录                    | 说明           |
+| ----------------------- | -------------- |
+| `learn_demo/docs/`      | 学习文档       |
+| `learn_demo/src/`       | 示例代码       |
+| `crates/oxc_parser/`    | Parser 源码    |
+| `crates/oxc_linter/`    | Linter 源码    |
+| `crates/oxc_ast/`       | AST 定义       |
+| `crates/oxc_semantic/`  | Semantic 分析  |
 | `crates/oxc_allocator/` | Allocator 实现 |
 
 ## 🔍 代码搜索
@@ -134,12 +134,12 @@ just fmt
 
 ## 🌐 在线工具
 
-| 工具 | 链接 | 说明 |
-|-----|------|------|
-| AST Explorer | https://astexplorer.net/ | 查看 AST 结构 |
-| Rust Playground | https://play.rust-lang.org/ | 在线 Rust |
-| Oxc 官网 | https://oxc.rs/ | 官方文档 |
-| GitHub | https://github.com/oxc-project/oxc | 源码仓库 |
+| 工具            | 链接                               | 说明          |
+| --------------- | ---------------------------------- | ------------- |
+| AST Explorer    | https://astexplorer.net/           | 查看 AST 结构 |
+| Rust Playground | https://play.rust-lang.org/        | 在线 Rust     |
+| Oxc 官网        | https://oxc.rs/                    | 官方文档      |
+| GitHub          | https://github.com/oxc-project/oxc | 源码仓库      |
 
 ## 💡 调试技巧
 
@@ -161,26 +161,29 @@ println!("This only prints in debug mode");
 ## 🎯 学习检查点
 
 ### 第一周
+
 - [ ] Parser: 能解析 JS/TS 代码
 - [ ] Linter: 能创建简单规则
 - [ ] 其他: 了解各工具作用
 
 ### 第二周
+
 - [ ] Visitor: 理解遍历模式
 - [ ] AST: 能查询和分析
 - [ ] Semantic: 理解作用域
 
 ### 第三周
+
 - [ ] 选择方向并深入
 
 ## 📞 获取帮助
 
-| 方式 | 链接 |
-|-----|------|
-| 文档 | `docs/` 目录 |
-| Issues | https://github.com/oxc-project/oxc/issues |
-| Discord | https://discord.gg/9uXCAwqQZW |
-| AGENTS.md | 根目录 |
+| 方式      | 链接                                      |
+| --------- | ----------------------------------------- |
+| 文档      | `docs/` 目录                              |
+| Issues    | https://github.com/oxc-project/oxc/issues |
+| Discord   | https://discord.gg/9uXCAwqQZW             |
+| AGENTS.md | 根目录                                    |
 
 ## ⌨️ VS Code 快捷键
 
@@ -198,22 +201,24 @@ Cmd+K Cmd+S                 # 快捷键列表
 
 ## 📊 学习时间建议
 
-| 活动 | 时间 |
-|-----|------|
-| 阅读文档 | 30 分钟 |
-| 运行示例 | 20 分钟 |
-| 修改实验 | 40 分钟 |
-| 总结笔记 | 10 分钟 |
+| 活动     | 时间            |
+| -------- | --------------- |
+| 阅读文档 | 30 分钟         |
+| 运行示例 | 20 分钟         |
+| 修改实验 | 40 分钟         |
+| 总结笔记 | 10 分钟         |
 | **合计** | **100 分钟/天** |
 
 ## 🎨 Markdown 语法
 
-```markdown
+````markdown
 # 一级标题
+
 ## 二级标题
+
 ### 三级标题
 
-**粗体** *斜体* `代码`
+**粗体** _斜体_ `代码`
 
 - 列表项
   - 子项
@@ -231,10 +236,10 @@ fn main() {}
 > 引用
 
 ---
+
 分隔线
-```
+````
 
 ---
 
 **打印这份文档，放在手边随时查阅！** 📄
-

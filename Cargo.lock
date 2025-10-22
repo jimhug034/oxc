@@ -1338,16 +1338,9 @@ dependencies = [
  "oxc_allocator",
  "oxc_ast",
  "oxc_ast_visit",
- "oxc_codegen",
- "oxc_data_structures",
- "oxc_formatter",
- "oxc_linter",
- "oxc_minifier",
  "oxc_parser",
- "oxc_semantic",
  "oxc_span",
  "oxc_syntax",
- "oxc_transformer",
 ]
 
 [[package]]

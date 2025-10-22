@@ -18,17 +18,20 @@ pub struct Allocator {
 **🦀 Rust 知识点**：
 
 #### 1.1 条件编译 (Conditional Compilation)
+
 ```rust
 #[cfg(all(feature = "track_allocations", not(feature = "disable_track_allocations")))]
 ```
 
 **学到的概念**：
+
 - `#[cfg()]` 属性用于条件编译
 - `all()`, `not()` 等逻辑组合
 - 特性标志 (feature flags) 的使用
 - 零成本抽象：不需要的功能完全不会编译到最终代码中
 
 #### 1.2 组合模式 (Composition over Inheritance)
+
 ```rust
 pub struct Allocator {
     bump: Bump,  // 组合而不是继承
@@ -37,6 +40,7 @@ pub struct Allocator {
 ```
 
 **设计原则**：
+
 - Rust 没有继承，通过组合实现功能复用
 - 将复杂功能分解为小的、可组合的组件
 - 每个组件职责单一，便于测试和维护
@@ -58,11 +62,13 @@ impl Allocator {
 **🦀 Rust 知识点**：
 
 #### 2.1 生命周期绑定策略
+
 - 所有分配的对象都与 Allocator 的生命周期绑定
 - 确保内存安全：当 Allocator 被释放时，所有引用都失效
 - 避免悬垂指针问题
 
 #### 2.2 生命周期省略规则的应用
+
 ```rust
 // 编译器自动推断
 pub fn alloc<T>(&self, val: T) -> &mut T
@@ -90,11 +96,13 @@ impl<T> Box<'_, T> {
 **🦀 Rust 知识点**：
 
 #### 3.1 编译时断言 (Compile-time Assertions)
+
 - `const {}` 块在编译时执行
 - `std::mem::needs_drop::<T>()` 检查类型是否需要 Drop
 - 编译时错误比运行时错误更安全
 
 #### 3.2 类型系统的威力
+
 ```rust
 // 这会编译失败！
 let allocator = Allocator::default();
@@ -105,6 +113,7 @@ let good = allocator.alloc([1, 2, 3]); // 数组不需要 Drop
 ```
 
 **设计原理**：
+
 - Arena 分配器不会调用 Drop，因此不能分配需要 Drop 的类型
 - 通过类型系统在编译时强制这个约束
 
@@ -118,14 +127,17 @@ pub struct Box<'alloc, T: ?Sized>(NonNull<T>, PhantomData<(&'alloc (), T)>);
 **🦀 Rust 知识点**：
 
 #### 4.1 PhantomData 的作用
+
 - `PhantomData<(&'alloc (), T)>` 表示这个结构体"拥有"生命周期 `'alloc` 和类型 `T`
 - 即使实际上不存储这些数据
 - 影响 Drop 检查器和变量检查器
 
 #### 4.2 零大小类型 (Zero-Sized Types)
+
 ```rust
 assert_eq!(std::mem::size_of::<PhantomData<(&'alloc (), T)>>(), 0);
 ```
+
 - `PhantomData` 不占用任何内存空间
 - 纯粹用于类型系统约束
 
@@ -144,14 +156,17 @@ pub fn alloc<T>(&self, val: T) -> &mut T {
 **🦀 Rust 知识点**：
 
 #### 5.1 内联优化
+
 - `#[inline(always)]` 强制内联
 - 热路径 (hot path) 函数应该内联
 - 避免函数调用开销
 
 #### 5.2 Clippy 注解管理
+
 ```rust
 #[expect(clippy::inline_always)]
 ```
+
 - 告诉 Clippy 这里的 `inline(always)` 是有意为之
 - 保持代码质量检查的同时允许特殊情况
 
@@ -170,14 +185,17 @@ impl<T: ?Sized> Deref for Box<'_, T> {
 **🦀 Rust 知识点**：
 
 #### 6.1 Deref Trait 的魔法
+
 - 自动解引用强制转换 (Deref coercion)
 - 让 `ArenaBox<T>` 像 `T` 一样使用
 - 零运行时成本
 
 #### 6.2 Unsafe 的谨慎使用
+
 ```rust
 unsafe { self.0.as_ref() }
 ```
+
 - `NonNull<T>` 保证非空，所以 `as_ref()` 是安全的
 - 最小化 unsafe 块的范围
 
@@ -196,6 +214,7 @@ pub trait CloneIn<'new_alloc>: Sized {
 **🦀 Rust 知识点**：
 
 #### 7.1 关联类型 vs 泛型参数
+
 ```rust
 // 使用关联类型（更好）
 trait CloneIn<'new_alloc> {
@@ -209,11 +228,13 @@ trait CloneIn<'new_alloc, Cloned> {
 ```
 
 **为什么关联类型更好**：
+
 - 每个类型只有一种克隆方式
 - 更清晰的 API 设计
 - 避免类型参数爆炸
 
 #### 7.2 递归 Trait 实现
+
 ```rust
 impl<'alloc, T, C> CloneIn<'alloc> for Option<T>
 where
@@ -228,6 +249,7 @@ where
 ```
 
 **设计模式**：
+
 - 为容器类型自动实现 trait
 - 递归应用内部类型的 trait 实现
 - 组合式的 trait 系统
@@ -257,11 +279,13 @@ where
 **🦀 Rust 知识点**：
 
 #### 8.1 Blanket Implementation
+
 - 为所有满足条件的类型自动实现 trait
 - 减少重复代码
 - 提供一致的 API 体验
 
 #### 8.2 类型转换的设计模式
+
 - 模仿标准库的 `From`/`Into` 模式
 - 但适配 Arena 分配器的需求
 - 显式传递 allocator 参数
@@ -279,11 +303,13 @@ where
 **🦀 Rust 知识点**：
 
 #### 9.1 内存布局设计
+
 - 多个 chunk 组成，每个 chunk 大小翻倍
 - 旧 chunk 中的数据不会移动
 - 引用保持有效，不像 Vec 的重新分配
 
 #### 9.2 性能权衡
+
 ```rust
 // Vec 的增长：需要复制所有数据
 let mut vec = Vec::new();
@@ -308,6 +334,7 @@ impl Allocator {
 ```
 
 **设计优势**：
+
 - 避免频繁的系统调用
 - 重用热的内存页面
 - 减少内存碎片
@@ -329,11 +356,13 @@ use crate::tracking::AllocationStats;
 **🦀 Rust 知识点**：
 
 #### 11.1 特性标志的最佳实践
+
 - 可选功能通过特性标志控制
 - 复杂的特性组合逻辑
 - 避免不需要的依赖
 
 #### 11.2 条件编译的高级用法
+
 ```rust
 // 复杂的条件逻辑
 #[cfg(all(
@@ -476,4 +505,3 @@ impl<'alloc, T> TypedAllocator<'alloc, T> {
 5. **贡献代码**：为 oxc 项目贡献改进
 
 通过深入分析 `oxc_allocator`，我们不仅学会了 Arena 分配器的实现，更重要的是掌握了 Rust 高级编程的精髓！🦀✨
-

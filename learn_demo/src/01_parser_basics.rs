@@ -245,4 +245,3 @@ mod tests {
         assert!(!has_arrow_function(code_without_arrow));
     }
 }
-

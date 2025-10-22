@@ -1,7 +1,7 @@
 // 第六个示例：高级特性和实用技巧
 // 运行方式：cd learn_docs/examples && cargo run --bin 06_advanced_features
 
-use oxc_allocator::{Allocator, Vec as ArenaVec, HashMap as ArenaHashMap, Box as ArenaBox};
+use oxc_allocator::{Allocator, Box as ArenaBox, HashMap as ArenaHashMap, Vec as ArenaVec};
 use std::time::Instant;
 
 fn main() {
@@ -42,9 +42,17 @@ fn memory_alignment_demo() {
 
     println!("   不同类型的内存地址:");
     println!("     u8  (1 byte):  {:p} (对齐: {})", byte_data, byte_data as *const u8 as usize % 1);
-    println!("     u16 (2 bytes): {:p} (对齐: {})", short_data, short_data as *const u16 as usize % 2);
+    println!(
+        "     u16 (2 bytes): {:p} (对齐: {})",
+        short_data,
+        short_data as *const u16 as usize % 2
+    );
     println!("     u32 (4 bytes): {:p} (对齐: {})", int_data, int_data as *const u32 as usize % 4);
-    println!("     u64 (8 bytes): {:p} (对齐: {})", long_data, long_data as *const u64 as usize % 8);
+    println!(
+        "     u64 (8 bytes): {:p} (对齐: {})",
+        long_data,
+        long_data as *const u64 as usize % 8
+    );
 
     // 验证对齐
     let u16_aligned = (short_data as *const u16 as usize) % 2 == 0;
@@ -65,7 +73,8 @@ fn memory_alignment_demo() {
     }
 
     let struct_data = allocator.alloc(AlignedStruct { a: 1, b: 2, c: 3 });
-    let struct_aligned = (struct_data as *const AlignedStruct as usize) % std::mem::align_of::<AlignedStruct>() == 0;
+    let struct_aligned =
+        (struct_data as *const AlignedStruct as usize) % std::mem::align_of::<AlignedStruct>() == 0;
 
     println!("   结构体对齐:");
     println!("     AlignedStruct 地址: {:p}", struct_data);
@@ -79,12 +88,8 @@ fn large_object_allocation() {
     let allocator = Allocator::default();
 
     // 分配不同大小的对象
-    let sizes = [
-        ("小对象", 64),
-        ("中对象", 1024),
-        ("大对象", 64 * 1024),
-        ("超大对象", 1024 * 1024),
-    ];
+    let sizes =
+        [("小对象", 64), ("中对象", 1024), ("大对象", 64 * 1024), ("超大对象", 1024 * 1024)];
 
     let mut allocations = Vec::new();
 
@@ -104,12 +109,11 @@ fn large_object_allocation() {
     // 分析地址分布
     println!("   地址分布分析:");
     for i in 1..allocations.len() {
-        let (prev_name, prev_addr) = allocations[i-1];
+        let (prev_name, prev_addr) = allocations[i - 1];
         let (curr_name, curr_addr) = allocations[i];
 
         let addr_diff = curr_addr as usize - prev_addr as usize;
-        println!("     {} 到 {} 的地址差: {} bytes",
-                 prev_name, curr_name, addr_diff);
+        println!("     {} 到 {} 的地址差: {} bytes", prev_name, curr_name, addr_diff);
     }
 
     // 测试连续分配大对象的性能
@@ -372,10 +376,9 @@ fn error_handling_demo() {
 
     // 内存使用估算
     println!("   内存使用估算:");
-    let estimated_usage =
-        10000 * 100 +  // 大量分配测试
+    let estimated_usage = 10000 * 100 +  // 大量分配测试
         1024 * 1024 +  // 1MB 数组
-        1000;          // 其他小对象
+        1000; // 其他小对象
 
     println!("     估算总内存使用: ~{} MB", estimated_usage / (1024 * 1024));
 }

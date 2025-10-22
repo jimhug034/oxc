@@ -20,15 +20,18 @@ cargo run --bin 01_allocator_basics
 ### 🏗️ Oxc Allocator 实践示例
 
 ### 01. 基础使用 (`01_allocator_basics.rs`)
+
 **学习目标**: 理解 Arena 分配器的基本概念和使用方法
 
 **内容包括**:
+
 - 创建和使用 Allocator
 - 分配基本数据类型
 - 观察内存地址和连续性
 - 字符串分配
 
 **运行命令**:
+
 ```bash
 cargo run --bin 01_allocator_basics
 ```
@@ -38,15 +41,18 @@ cargo run --bin 01_allocator_basics
 ---
 
 ### 02. 性能对比 (`02_performance_comparison.rs`)
+
 **学习目标**: 理解 Arena 分配器相比传统分配方式的性能优势
 
 **内容包括**:
+
 - 不同规模的性能测试
 - 不同数据类型的性能对比
 - 内存使用效率分析
 - 缓存友好性演示
 
 **运行命令**:
+
 ```bash
 # 建议使用 release 模式以获得更明显的性能差异
 cargo run --bin 02_performance_comparison --release
@@ -57,15 +63,18 @@ cargo run --bin 02_performance_comparison --release
 ---
 
 ### 03. Arena 数据结构 (`03_arena_data_structures.rs`)
+
 **学习目标**: 掌握 Arena 版本的数据结构使用
 
 **内容包括**:
+
 - ArenaBox 使用
 - ArenaVec 操作
 - ArenaHashMap 应用
 - 嵌套和复杂数据结构
 
 **运行命令**:
+
 ```bash
 cargo run --bin 03_arena_data_structures
 ```
@@ -75,15 +84,18 @@ cargo run --bin 03_arena_data_structures
 ---
 
 ### 04. 内存管理 (`04_memory_management.rs`)
+
 **学习目标**: 理解内存管理和生命周期
 
 **内容包括**:
+
 - Allocator reset 功能
 - 生命周期演示
 - 内存增长和管理
 - 批处理场景
 
 **运行命令**:
+
 ```bash
 cargo run --bin 04_memory_management
 ```
@@ -93,15 +105,18 @@ cargo run --bin 04_memory_management
 ---
 
 ### 05. AST 模拟 (`05_ast_simulation.rs`)
+
 **学习目标**: 了解 Arena 分配器在 AST 构建中的实际应用
 
 **内容包括**:
+
 - 简单和复杂 AST 构建
 - AST 遍历算法
 - JavaScript 解析模拟
 - 性能对比分析
 
 **运行命令**:
+
 ```bash
 cargo run --bin 05_ast_simulation
 ```
@@ -111,15 +126,18 @@ cargo run --bin 05_ast_simulation
 ---
 
 ### 06. 高级特性 (`06_advanced_features.rs`)
+
 **学习目标**: 掌握高级特性和最佳实践
 
 **内容包括**:
+
 - 内存对齐演示
 - 大对象分配策略
 - 自定义分配器模式
 - 错误处理和最佳实践
 
 **运行命令**:
+
 ```bash
 cargo run --bin 06_advanced_features
 ```
@@ -131,9 +149,11 @@ cargo run --bin 06_advanced_features
 ### 🦀 Rust 概念学习示例
 
 ### R01. 生命周期 (`rust_concepts_01_lifetimes.rs`)
+
 **学习目标**: 深入理解 Rust 生命周期系统
 
 **内容包括**:
+
 - 基础生命周期概念
 - Arena 分配器中的生命周期绑定
 - 生命周期省略规则
@@ -141,14 +161,17 @@ cargo run --bin 06_advanced_features
 - 静态生命周期
 
 **运行命令**:
+
 ```bash
 cargo run --bin rust_concepts_01_lifetimes
 ```
 
 ### R02. 不安全 Rust (`rust_concepts_02_unsafe.rs`)
+
 **学习目标**: 理解 unsafe Rust 的正确使用
 
 **内容包括**:
+
 - 为什么需要 unsafe
 - Arena 分配器中的 unsafe 使用
 - 编译时 vs 运行时检查
@@ -156,11 +179,13 @@ cargo run --bin rust_concepts_01_lifetimes
 - Unsafe 最佳实践
 
 **运行命令**:
+
 ```bash
 cargo run --bin rust_concepts_02_unsafe
 ```
 
 ### R03-R07. 更多 Rust 概念
+
 - `rust_concepts_03_generics_traits.rs` - 泛型和 Trait
 - `rust_concepts_04_smart_pointers.rs` - 智能指针
 - `rust_concepts_05_advanced_traits.rs` - 高级 Trait 应用
@@ -170,16 +195,19 @@ cargo run --bin rust_concepts_02_unsafe
 ## 🎯 学习路径建议
 
 ### 第一天：基础概念
+
 1. 运行 `01_allocator_basics` - 理解基本概念
 2. 运行 `02_performance_comparison` - 感受性能优势
 3. 阅读输出，理解 Arena 分配器的工作原理
 
 ### 第二天：数据结构和内存管理
+
 1. 运行 `03_arena_data_structures` - 学习 Arena 数据结构
 2. 运行 `04_memory_management` - 理解内存管理
 3. 实践：修改示例代码，添加自己的测试
 
 ### 第三天：实际应用
+
 1. 运行 `05_ast_simulation` - 了解实际应用场景
 2. 运行 `06_advanced_features` - 掌握高级特性
 3. 总结：整理学习笔记，准备进入下一个模块
@@ -187,16 +215,19 @@ cargo run --bin rust_concepts_02_unsafe
 ### 🦀 Rust 概念学习路径
 
 ### 第一周：Rust 基础概念
+
 - **第1-2天**: 生命周期系统 (`rust_concepts_01_lifetimes`)
 - **第3-4天**: 不安全 Rust (`rust_concepts_02_unsafe`)
 - **第5-7天**: 泛型和 Trait (`rust_concepts_03_generics_traits`)
 
 ### 第二周：高级 Rust 概念
+
 - **第8-10天**: 智能指针 (`rust_concepts_04_smart_pointers`)
 - **第11-12天**: 高级 Trait (`rust_concepts_05_advanced_traits`)
 - **第13-14天**: 宏编程 (`rust_concepts_06_macros`)
 
 ### 第三周：性能优化
+
 - **第15-17天**: 性能优化技巧 (`rust_concepts_07_performance`)
 - **第18-21天**: 综合实践和项目应用
 
@@ -223,16 +254,20 @@ cargo run --bin rust_concepts_02_unsafe
 ## 🐛 常见问题
 
 ### Q: 编译错误怎么办？
+
 A: 确保你在正确的目录中，并且 Oxc 项目已经成功构建：
+
 ```bash
 cd /path/to/oxc/learn_docs/examples
 cargo check
 ```
 
 ### Q: 性能差异不明显？
+
 A: 尝试使用 `--release` 模式，并确保测试规模足够大。
 
 ### Q: 想要修改示例代码？
+
 A: 完全可以！这些示例就是为了让你实验和学习。
 
 ## 📝 练习建议

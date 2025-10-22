@@ -29,16 +29,17 @@ cargo run --bin 02_linter_basics
 创建 `test_lint.js`：
 
 ```javascript
-debugger;  // 应该被 no-debugger 规则检测到
+debugger; // 应该被 no-debugger 规则检测到
 
-console.log("test");  // 如果启用 no-console 会被检测到
+console.log('test'); // 如果启用 no-console 会被检测到
 
-if (x == null) {  // 应该用 === 而不是 ==
-    console.log("null check");
+if (x == null) { // 应该用 === 而不是 ==
+  console.log('null check');
 }
 ```
 
 运行检查：
+
 ```bash
 cargo run -p oxc_linter --example linter -- test_lint.js
 ```
@@ -138,6 +139,7 @@ impl Rule for NoDebugger {
 ```
 
 **学习要点**:
+
 - 最简单的规则：只检查一种语句类型
 - 使用 `run_once` 而不是 visitor（因为只需要扫描一次）
 - 创建诊断信息
@@ -167,6 +169,7 @@ impl Rule for NoConsole {
 ```
 
 **学习要点**:
+
 - 使用 `run` 方法遍历每个节点
 - 检查节点类型和结构
 - 判断标识符名称
@@ -180,6 +183,7 @@ impl Rule for NoConsole {
 这个规则检查是否使用了 `==` 或 `!=` 而不是 `===` 或 `!==`。
 
 **学习要点**:
+
 - 检查二元操作符
 - 提供自动修复建议
 - 配置选项支持
@@ -199,7 +203,7 @@ just new-rule no-magic-numbers
 
 #### 步骤 2: 实现规则逻辑
 
-```rust
+````rust
 use oxc_ast::AstKind;
 use oxc_diagnostics::OxcDiagnostic;
 use oxc_macros::declare_oxc_lint;
@@ -263,7 +267,7 @@ fn test() {
     Tester::new(NoMagicNumbers::NAME, NoMagicNumbers::PLUGIN, pass, fail)
         .test_and_snapshot();
 }
-```
+````
 
 #### 步骤 3: 注册规则
 
@@ -304,6 +308,7 @@ impl Rule for NoVar {
     }
 }
 ```
+
 </details>
 
 ---
@@ -313,6 +318,7 @@ impl Rule for NoVar {
 目标：检查 async 函数是否使用了 await
 
 这个练习更复杂，需要：
+
 1. 跟踪是否在 async 函数内部
 2. 检测是否有 await 表达式
 3. 在函数结束时报告
@@ -362,6 +368,7 @@ impl Rule for RequireAwait {
     }
 }
 ```
+
 </details>
 
 ## 📝 实践任务
@@ -463,15 +470,18 @@ impl Rule for NoConsole {
 ## 🔗 相关资源
 
 ### 代码位置
+
 - Linter 核心: `crates/oxc_linter/src/`
 - 规则实现: `crates/oxc_linter/src/rules/`
 - 测试工具: `crates/oxc_linter/src/tester.rs`
 
 ### 文档
+
 - [ESLint 规则文档](https://eslint.org/docs/latest/rules/)
 - [贡献 Lint 规则](../../../../CONTRIBUTING.md)
 
 ### 工具
+
 - `just new-rule <name>` - 创建新规则
 - `cargo test -p oxc_linter` - 运行测试
 
@@ -480,10 +490,10 @@ impl Rule for NoConsole {
 ## ➡️ 下一步
 
 完成 Day 3-4 的学习后，继续：
+
 - [Day 5-7: 其他工具初探](./第一周_Day5-7_其他工具.md)
 
 ---
 
 **学习日期**: ___________
 **完成情况**: ⬜ 未开始 / ⬜ 进行中 / ⬜ 已完成
-

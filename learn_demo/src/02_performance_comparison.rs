@@ -204,7 +204,8 @@ fn cache_friendliness_demo() {
     println!("     Box 方式遍历耗时: {:?}", box_traverse_time);
     println!("     Arena 方式遍历耗时: {:?}", arena_traverse_time);
 
-    let traverse_speedup = box_traverse_time.as_nanos() as f64 / arena_traverse_time.as_nanos() as f64;
+    let traverse_speedup =
+        box_traverse_time.as_nanos() as f64 / arena_traverse_time.as_nanos() as f64;
     println!("     遍历速度提升: {:.2}x", traverse_speedup);
 
     // 验证结果一致性
@@ -212,7 +213,12 @@ fn cache_friendliness_demo() {
     println!("     ✅ 计算结果一致: {}", sum);
 }
 
-fn print_comparison(test_name: &str, count: usize, box_time: std::time::Duration, arena_time: std::time::Duration) {
+fn print_comparison(
+    test_name: &str,
+    count: usize,
+    box_time: std::time::Duration,
+    arena_time: std::time::Duration,
+) {
     let speedup = box_time.as_nanos() as f64 / arena_time.as_nanos() as f64;
 
     println!("   {} ({} 次分配):", test_name, count);

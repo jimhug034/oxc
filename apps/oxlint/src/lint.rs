@@ -298,15 +298,20 @@ impl LintRunner {
         let (mut diagnostic_service, tx_error) =
             Self::get_diagnostic_service(&output_formatter, &warning_options, &misc_options);
 
+        // ====== 创建配置存储 ======
+        // ConfigStore 包含所有 lint 规则的配置，支持嵌套配置文件
         let config_store = ConfigStore::new(lint_config, nested_configs, external_plugin_store);
 
+        // ====== 过滤要检查的文件 ======
+        // 应用 ignore 模式，过滤掉不需要检查的文件
         let files_to_lint = paths
             .into_iter()
             .filter(|path| !ignore_matcher.should_ignore(Path::new(path)))
             .collect::<Vec<Arc<OsStr>>>();
 
-        // Run type-aware linting through tsgolint
-        // TODO: Add a warning message if `tsgolint` cannot be found, but type-aware rules are enabled
+        // ====== 类型感知 linting（通过 tsgolint）======
+        // tsgolint 是用 Go 编写的外部工具，用于需要类型信息的规则
+        // TODO: 如果启用了类型感知规则但找不到 `tsgolint`，应添加警告消息
         if self.options.type_aware {
             if let Err(err) = TsGoLintState::new(options.cwd(), config_store.clone())
                 .with_silent(misc_options.silent)
@@ -317,12 +322,22 @@ impl LintRunner {
             }
         }
 
+        // ====== 🔥 关键：创建 oxc_linter::Linter 实例 ======
+        // 这是真正的 linter 对象，来自 oxc_linter crate
+        // 配置了：
+        // 1. 默认 lint 选项
+        // 2. 配置存储（包含所有规则）
+        // 3. 外部 linter（可选）
+        // 4. 是否自动修复
+        // 5. 是否报告未使用的指令
         let linter = Linter::new(LintOptions::default(), config_store, self.external_linter)
             .with_fix(fix_options.fix_kind())
             .with_report_unused_directives(report_unused_directives);
 
         let number_of_files = files_to_lint.len();
 
+        // ====== 配置 tsconfig 路径 ======
+        // 用于 import 插件解析路径别名和项目引用
         let tsconfig = basic_options.tsconfig;
         if let Some(path) = tsconfig.as_ref() {
             if path.is_file() {
@@ -344,24 +359,44 @@ impl LintRunner {
 
         let number_of_rules = linter.number_of_rules(self.options.type_aware);
 
-        // Spawn linting in another thread so diagnostics can be printed immediately from diagnostic_service.run.
+        // ====== 🔥 关键：在独立线程中执行 linting ======
+        // 在另一个线程中生成 linting 任务，这样诊断信息可以立即从 diagnostic_service.run 打印出来
+        // 这实现了边检查边输出的效果，提升用户体验
         rayon::spawn(move || {
+            // 创建 LintService（来自 oxc_linter crate）
+            // LintService 负责：
+            // 1. 遍历所有文件
+            // 2. 解析每个文件（调用 oxc_parser）
+            // 3. 进行语义分析（调用 oxc_semantic）
+            // 4. 对每个文件运行所有 lint 规则
+            // 5. 收集诊断信息并发送到 tx_error 通道
             let mut lint_service = LintService::new(linter, options);
             lint_service.with_paths(files_to_lint);
 
-            // Use `RawTransferFileSystem` if `oxlint2` feature is enabled.
-            // This reads the source text into start of allocator, instead of the end.
+            // 如果启用了 `oxlint2` 特性，使用 RawTransferFileSystem
+            // 这会将源文本读取到分配器的开始位置，而不是结束位置（性能优化）
             #[cfg(all(feature = "oxlint2", not(feature = "disable_oxlint2")))]
             {
                 use crate::raw_fs::RawTransferFileSystem;
                 lint_service.with_file_system(Box::new(RawTransferFileSystem));
             }
 
+            // 🔥🔥🔥 这里是真正执行 linting 的地方！🔥🔥🔥
+            // lint_service.run() 会：
+            // 1. 并行处理所有文件（使用 Rayon）
+            // 2. 每个文件调用 oxc_parser 解析
+            // 3. 调用 oxc_semantic 进行语义分析
+            // 4. 调用 Linter.run() 执行所有规则
+            // 5. 将诊断结果发送到 tx_error 通道
             lint_service.run(&tx_error);
         });
 
+        // ====== 收集并输出诊断结果 ======
+        // diagnostic_service 在主线程中运行，接收来自 lint_service 的诊断消息
+        // 这允许实时打印 lint 错误，而不是等待所有文件都检查完毕
         let diagnostic_result = diagnostic_service.run(stdout);
 
+        // ====== 输出统计信息 ======
         if let Some(end) = output_formatter.lint_command_info(&LintCommandInfo {
             number_of_files,
             number_of_rules,
@@ -371,6 +406,8 @@ impl LintRunner {
             print_and_flush_stdout(stdout, &end);
         }
 
+        // ====== 确定退出状态 ======
+        // 根据诊断结果返回适当的退出码
         if diagnostic_result.errors_count() > 0 {
             CliRunResult::LintFoundErrors
         } else if warning_options.deny_warnings && diagnostic_result.warnings_count() > 0 {
