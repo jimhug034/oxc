@@ -235,6 +235,32 @@ impl Linter {
         ctx_host.take_diagnostics()
     }
 
+    /// 运行外部 lint 规则（来自 JavaScript 端）
+    ///
+    /// 此方法只在启用 `oxlint2` feature 时编译。它允许 Rust 侧调用 JavaScript 端的
+    /// ESLint 规则，通过共享内存传递 AST，实现高性能的跨语言 linting。
+    ///
+    /// # 工作流程
+    ///
+    /// 1. **准备 AST**: 获取已解析的 AST，并将其 span（UTF-8）转换为 UTF-16
+    /// 2. **共享内存**: 通过 `Allocator` 的共享内存机制传递 AST 给 JavaScript
+    /// 3. **调用 JS**: 通过 `external_linter.lint_file` 回调执行 JavaScript 规则
+    /// 4. **收集结果**: 接收 JavaScript 返回的诊断信息
+    /// 5. **转换位置**: 将 UTF-16 偏移量转换回 UTF-8
+    /// 6. **合并诊断**: 将外部规则的诊断结果添加到 `ctx_host` 中
+    ///
+    /// # 参数
+    ///
+    /// - `external_rules`: 要运行的外部规则及其严重性级别列表
+    /// - `path`: 正在检查的文件路径
+    /// - `ctx_host`: 上下文宿主，用于存储诊断结果
+    /// - `allocator`: 包含 AST 的内存分配器
+    ///
+    /// # 注意事项
+    ///
+    /// - 此方法涉及复杂的内存操作和指针转换
+    /// - AST 必须在共享内存中，以便 JavaScript 可以直接访问
+    /// - 需要进行 UTF-8 ↔ UTF-16 位置转换，因为 Rust 使用 UTF-8，JS 使用 UTF-16
     #[cfg(all(feature = "oxlint2", not(feature = "disable_oxlint2")))]
     fn run_external_rules<'a>(
         &self,
@@ -254,93 +280,111 @@ impl Linter {
 
         use crate::fixer::PossibleFixes;
 
+        // 如果没有外部规则需要运行，直接返回
         if external_rules.is_empty() {
             return;
         }
 
-        // `external_linter` always exists when `oxlint2` feature is enabled
+        // 获取外部 linter 实例
+        // 当启用 `oxlint2` feature 时，这个字段总是 Some
         let external_linter = self.external_linter.as_ref().unwrap();
 
+        // ====== 阶段 1: 准备 AST 并转换为 UTF-16 ======
         let (program_offset, span_converter) = {
-            // Extract `Semantic` from `ContextHost`, and get a mutable reference to `Program`.
+            // 从 `ContextHost` 中提取 `Semantic`，并获取 `Program` 的可变引用。
             //
-            // It's not possible to obtain a `&mut Program` while `Semantic` exists, because `Semantic`
-            // contains `AstNodes`, which contains `AstKind`s for every AST nodes, each of which contains
-            // an immutable `&` ref to an AST node.
-            // Obtaining a `&mut Program` while `Semantic` exists would be illegal aliasing.
+            // 为什么不能直接获取 `&mut Program`？
+            // - `Semantic` 包含 `AstNodes`，它为每个 AST 节点存储了 `AstKind`
+            // - 每个 `AstKind` 都包含对 AST 节点的不可变引用 `&`
+            // - 在 `Semantic` 存在时获取 `&mut Program` 会违反 Rust 的别名规则
             //
-            // So instead we get a pointer to `Program`.
-            // The pointer is obtained initially from `&Program` in `Semantic`, but that pointer
-            // has no provenance for mutation, so can't be converted to `&mut Program`.
-            // So create a new pointer to `Program` which inherits `data_end_ptr`'s provenance,
-            // which does allow mutation.
+            // 解决方案（使用指针技巧）：
+            // 1. 从 `Semantic` 中获取指向 `Program` 的指针
+            // 2. 创建一个新指针，继承 `data_end_ptr` 的来源（provenance），允许修改
+            // 3. 删除 `Semantic`，此时不再有对 AST 节点的引用
+            // 4. 现在可以安全地将指针转换为 `&mut Program`
             //
-            // We then drop `Semantic`, after which no references to any AST nodes remain.
-            // We can then safety convert the pointer to `&mut Program`.
+            // 内存布局保证：
+            // - `Program` 在 `allocator` 中创建，使用 `FixedSizeAllocator`
+            // - `FixedSizeAllocator` 只有一个内存块
+            // - `data_end_ptr` 和 `Program` 在同一分配中
+            // - 所有 `Linter::run` 的调用者都从 `ModuleContent` 获取 `allocator` 和 `Semantic`
             //
-            // `Program` was created in `allocator`, and that allocator is a `FixedSizeAllocator`,
-            // so only has 1 chunk. So `data_end_ptr` and `Program` are within the same allocation.
-            // All callers of `Linter::run` obtain `allocator` and `Semantic` from `ModuleContent`,
-            // which ensure they are in same allocation.
-            // However, we have no static guarantee of this, so strictly speaking it's unsound.
-            // TODO: It would be better to avoid the need for a `&mut Program` here, and so avoid this
-            // sketchy behavior.
+            // 注意：这在技术上是不健全的（unsound），因为没有静态保证
+            // TODO: 最好避免这里需要 `&mut Program`，从而避免这种危险行为
+            // 获取 ctx_host 的可变引用（Rc::get_mut 确保没有其他引用）
             let ctx_host = Rc::get_mut(ctx_host).unwrap();
+            // 从 ctx_host 中取出 Semantic（替换为默认值）
             let semantic = mem::take(ctx_host.semantic_mut());
+            // 获取 Program 的地址
             let program_addr = NonNull::from(semantic.nodes().program()).addr();
+            // 创建新指针，继承 data_end_ptr 的来源，允许修改
             let mut program_ptr =
                 allocator.data_end_ptr().cast::<Program>().with_addr(program_addr);
+            // 删除 Semantic，释放所有对 AST 的引用
             drop(semantic);
-            // SAFETY: Now that we've dropped `Semantic`, no references to any AST nodes remain,
-            // so can get a mutable reference to `Program` without aliasing violations.
+            // SAFETY: 现在 Semantic 已被删除，不再有对任何 AST 节点的引用，
+            // 因此可以安全地获取 Program 的可变引用，不会违反别名规则
             let program = unsafe { program_ptr.as_mut() };
 
-            // Convert spans to UTF-16
+            // 将所有 span 从 UTF-8 转换为 UTF-16
+            // JavaScript 使用 UTF-16 编码，所以需要进行转换
             let span_converter = Utf8ToUtf16::new(program.source_text);
             span_converter.convert_program(program);
 
-            // Get offset of `Program` within buffer (bottom 32 bits of pointer)
+            // 获取 Program 在缓冲区中的偏移量（指针的低 32 位）
+            // JavaScript 端将使用此偏移量来定位 AST
             let program_offset = ptr::from_ref(program) as u32;
 
             (program_offset, span_converter)
         };
 
-        // Write offset of `Program` in metadata at end of buffer
+        // ====== 阶段 2: 在缓冲区末尾写入元数据 ======
+        // 将 Program 的偏移量写入缓冲区末尾的元数据区域
+        // JavaScript 端需要这个偏移量来定位 AST 的起始位置
         let metadata = RawTransferMetadata::new(program_offset);
         let metadata_ptr = allocator.end_ptr().cast::<RawTransferMetadata>();
-        // SAFETY: `Allocator` was created by `FixedSizeAllocator` which reserved space after `end_ptr`
-        // for a `RawTransferMetadata`. `end_ptr` is aligned for `RawTransferMetadata`.
+        // SAFETY: `Allocator` 由 `FixedSizeAllocator` 创建，它在 `end_ptr` 后面
+        // 预留了 `RawTransferMetadata` 的空间。`end_ptr` 已对齐到 `RawTransferMetadata`。
         unsafe { metadata_ptr.write(metadata) };
 
-        // Pass AST and rule IDs to JS
+        // ====== 阶段 3: 调用 JavaScript 端执行 lint ======
+        // 通过共享内存传递 AST 和规则 ID 列表给 JavaScript
+        // JavaScript 端将读取共享内存中的 AST，执行相应的规则，并返回诊断结果
         let result = (external_linter.lint_file)(
-            path.to_str().unwrap().to_string(),
-            external_rules.iter().map(|(rule_id, _)| rule_id.raw()).collect(),
-            allocator,
+            path.to_str().unwrap().to_string(),      // 文件路径
+            external_rules.iter().map(|(rule_id, _)| rule_id.raw()).collect(), // 规则 ID 列表
+            allocator,                                 // 包含 AST 的内存分配器
         );
+        // ====== 阶段 4: 处理 JavaScript 返回的结果 ======
         match result {
             Ok(diagnostics) => {
+                // 成功：遍历所有诊断结果
                 for diagnostic in diagnostics {
-                    // Convert UTF-16 offsets back to UTF-8
+                    // 将 UTF-16 偏移量转换回 UTF-8
+                    // JavaScript 返回的位置是 UTF-16 编码的，需要转换为 Rust 的 UTF-8
                     let mut span = Span::new(diagnostic.loc.start, diagnostic.loc.end);
                     span_converter.convert_span_back(&mut span);
 
+                    // 获取触发此诊断的规则信息
                     let (external_rule_id, severity) =
                         external_rules[diagnostic.rule_index as usize];
                     let (plugin_name, rule_name) =
                         self.config.resolve_plugin_rule_names(external_rule_id);
 
+                    // 创建诊断消息并添加到上下文中
                     ctx_host.push_diagnostic(Message::new(
                         OxcDiagnostic::error(diagnostic.message)
-                            .with_label(span)
-                            .with_error_code(plugin_name.to_string(), rule_name.to_string())
-                            .with_severity(severity.into()),
-                        PossibleFixes::None,
+                            .with_label(span)                    // 错误位置
+                            .with_error_code(plugin_name.to_string(), rule_name.to_string()) // 规则名
+                            .with_severity(severity.into()),     // 严重性级别
+                        PossibleFixes::None,                     // 暂无修复建议
                     ));
                 }
             }
             Err(_err) => {
-                // TODO: report diagnostic
+                // 失败：JavaScript 端执行出错
+                // TODO: 应该报告诊断错误
             }
         }
     }

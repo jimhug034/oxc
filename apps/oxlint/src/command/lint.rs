@@ -11,62 +11,128 @@ use super::{
     misc_options, validate_paths,
 };
 
+/// Lint 命令的完整参数结构
+///
+/// 这个结构体包含了 `oxlint` 命令行工具的所有参数。
+/// 使用 `bpaf` 库进行命令行参数解析（一个高性能的参数解析库）。
+///
+/// # 参数分组
+///
+/// 参数被组织成多个逻辑组：
+/// - 基本配置：配置文件、tsconfig 等
+/// - 规则过滤：启用/禁用特定规则或类别
+/// - 插件管理：启用/禁用各种插件
+/// - 修复选项：自动修复相关设置
+/// - 忽略选项：.gitignore 和 ignore 模式
+/// - 警告选项：警告的处理方式
+/// - 输出选项：输出格式
+/// - 杂项：线程数、静默模式等
+///
+/// # 示例
+///
+/// ```bash
+/// # 基本用法
+/// oxlint src/
+///
+/// # 带参数
+/// oxlint -D correctness -A no-debugger --fix src/
+/// ```
 #[derive(Debug, Clone, Bpaf)]
 #[bpaf(options, version(VERSION))]
 pub struct LintCommand {
+    /// 基本配置选项
+    /// 包括：--config, --tsconfig, --init
     #[bpaf(external)]
     pub basic_options: BasicOptions,
 
+    /// 规则过滤器列表
+    /// 从命令行收集的所有 -A/-W/-D 参数
+    /// 例如：-D correctness -A no-debugger
     #[bpaf(external(lint_filter), map(LintFilter::into_tuple), many, hide_usage)]
     pub filter: Vec<(AllowWarnDeny, String)>,
 
+    /// 插件启用/禁用设置
+    /// 包括所有 --*-plugin 和 --disable-*-plugin 标志
     #[bpaf(external)]
     pub enable_plugins: EnablePlugins,
 
+    /// 自动修复选项
+    /// --fix, --fix-suggestions, --fix-dangerously
     #[bpaf(external)]
     pub fix_options: FixOptions,
 
+    /// 文件忽略选项
+    /// --no-ignore, --ignore-path, --ignore-pattern
     #[bpaf(external)]
     pub ignore_options: IgnoreOptions,
 
+    /// 警告处理选项
+    /// --quiet, --deny-warnings, --max-warnings
     #[bpaf(external)]
     pub warning_options: WarningOptions,
 
+    /// 输出格式选项
+    /// --format (-f): default, json, checkstyle, etc.
     #[bpaf(external)]
     pub output_options: OutputOptions,
 
-    /// list all the rules that are currently registered
+    /// 列出所有已注册的规则
+    /// 使用 --rules 标志
     #[bpaf(long("rules"), switch, hide_usage)]
     pub list_rules: bool,
 
+    /// 杂项选项
+    /// --silent, --threads, --print-config
     #[bpaf(external)]
     pub misc_options: MiscOptions,
 
-    /// Disables the automatic loading of nested configuration files.
+    /// 禁用自动加载嵌套配置文件
+    /// 默认情况下，Oxlint 会在子目录中查找配置文件
     #[bpaf(switch, hide_usage)]
     pub disable_nested_config: bool,
 
-    /// Enables rules that require type information.
+    /// 启用需要类型信息的规则
+    /// 这会调用 tsgolint（Go 实现）来执行类型感知的规则
     #[bpaf(switch, hide_usage)]
     pub type_aware: bool,
 
+    /// 内联配置注释选项
+    /// --report-unused-disable-directives 相关
     #[bpaf(external)]
     pub inline_config_options: InlineConfigOptions,
 
-    /// Single file, single path or list of paths
+    /// 要检查的文件或目录路径列表
+    /// 位置参数，可以有多个
+    /// 例如：oxlint src/ test/ utils/helper.js
     #[bpaf(positional("PATH"), many, guard(validate_paths, PATHS_ERROR_MESSAGE))]
     pub paths: Vec<PathBuf>,
 }
 
 impl LintCommand {
+    /// 处理线程配置
+    ///
+    /// 在执行 linting 之前必须调用此方法来初始化 Rayon 线程池。
     pub fn handle_threads(&self) {
         Self::init_rayon_thread_pool(self.misc_options.threads);
     }
 
-    /// Initialize Rayon global thread pool with specified number of threads.
+    /// 初始化 Rayon 全局线程池
     ///
-    /// If `--threads` option is not used, or `--threads 0` is given,
-    /// default to the number of available CPU cores.
+    /// 根据 `--threads` 选项或 CPU 核心数设置线程数。
+    ///
+    /// # 行为
+    ///
+    /// - 如果指定了 `--threads N` 且 N > 0：使用 N 个线程
+    /// - 如果没有指定或指定了 `--threads 0`：使用 CPU 核心数
+    /// - 如果无法确定 CPU 核心数：默认为 1 个线程
+    ///
+    /// # 为什么总是显式初始化？
+    ///
+    /// 即使使用默认线程数，我们也总是显式初始化线程池，以确保：
+    /// 1. 线程数在程序运行期间保持不变（"锁定"）
+    /// 2. 避免 Rayon 未来版本可能引入的动态线程管理
+    ///
+    /// 详见：<https://docs.rs/rayon/1.11.0/rayon/struct.ThreadPoolBuilder.html#method.num_threads>
     #[expect(clippy::print_stderr)]
     fn init_rayon_thread_pool(threads: Option<usize>) {
         // Always initialize thread pool, even if using default thread count,
@@ -85,81 +151,135 @@ impl LintCommand {
         // To ensure we continue to have a "locked" thread count, even after future Rayon upgrades,
         // we always initialize the thread pool and explicitly specify thread count here.
 
+        // 确定要使用的线程数
         let thread_count = if let Some(thread_count) = threads
             && thread_count > 0
         {
+            // 用户明确指定了线程数
             thread_count
         } else if let Ok(thread_count) = std::thread::available_parallelism() {
+            // 使用系统 CPU 核心数
             thread_count.get()
         } else {
+            // 无法确定 CPU 核心数，使用单线程
             eprintln!(
                 "Unable to determine available thread count. Defaulting to 1.\nConsider specifying the number of threads explicitly with `--threads` option."
             );
             1
         };
 
+        // 构建并设置全局线程池
+        // 注意：这会 panic 如果全局线程池已被初始化（但在 Oxlint 中不应该发生）
         rayon::ThreadPoolBuilder::new().num_threads(thread_count).build_global().unwrap();
     }
 }
 
-/// Basic Configuration
+/// 基本配置选项
+///
+/// 包含与配置文件和初始化相关的选项。
 #[derive(Debug, Clone, Bpaf)]
 pub struct BasicOptions {
-    /// Oxlint configuration file (experimental)
-    ///  * only `.json` extension is supported
-    ///  * you can use comments in configuration files.
-    ///  * tries to be compatible with the ESLint v8's format
+    /// Oxlint 配置文件路径 (实验性)
     ///
-    /// If not provided, Oxlint will look for `.oxlintrc.json` in the current working directory.
+    /// # 特性
+    /// - 只支持 `.json` 扩展名
+    /// - 可以在配置文件中使用注释（JSON5 格式）
+    /// - 尽量兼容 ESLint v8 的配置格式
+    ///
+    /// # 查找规则
+    /// 如果未提供，Oxlint 会在当前工作目录查找 `.oxlintrc.json`
+    ///
+    /// # 使用
+    /// ```bash
+    /// oxlint --config custom.json src/
+    /// ```
     #[bpaf(long, short, argument("./.oxlintrc.json"))]
     pub config: Option<PathBuf>,
 
-    /// TypeScript `tsconfig.json` path for reading path alias and project references for import plugin
+    /// TypeScript `tsconfig.json` 文件路径
+    ///
+    /// 用于 import 插件读取路径别名（path alias）和项目引用（project references）。
+    ///
+    /// # 使用
+    /// ```bash
+    /// oxlint --tsconfig ./tsconfig.json --import-plugin src/
+    /// ```
     #[bpaf(argument("./tsconfig.json"), hide_usage)]
     pub tsconfig: Option<PathBuf>,
 
-    /// Initialize oxlint configuration with default values
+    /// 初始化 Oxlint 配置文件
+    ///
+    /// 使用默认值创建 `.oxlintrc.json` 配置文件。
+    ///
+    /// # 使用
+    /// ```bash
+    /// oxlint --init
+    /// ```
     #[bpaf(switch, hide_usage)]
     pub init: bool,
 }
 
-// This is formatted according to
-// <https://docs.rs/bpaf/latest/bpaf/params/struct.NamedArg.html#method.help>
-/// Allowing / Denying Multiple Lints
+/// 规则过滤器：允许/警告/拒绝 Lint 规则
 ///
-/// Accumulate rules and categories from left to right on the command-line.
-///   For example `-D correctness -A no-debugger` or `-A all -D no-debugger`.
-///   The categories are:
-///   * `correctness` - code that is outright wrong or useless (default).
-///   * `suspicious`  - code that is most likely wrong or useless.
-///   * `pedantic`    - lints which are rather strict or have occasional false positives.
-///   * `style`       - code that should be written in a more idiomatic way.
-///   * `nursery`     - new lints that are still under development.
-///   * `restriction` - lints which prevent the use of language and library features.
-///   * `all`         - all the categories listed above except nursery. Does not enable plugins automatically.
+/// 从命令行左到右累积规则和类别。
 ///
-/// Arguments:
-//  ^ This shows up on the website but not from the cli's `--help`.
+/// # 规则类别
+///
+/// - `correctness` - 明显错误或无用的代码（默认启用）
+/// - `suspicious`  - 很可能错误或无用的代码
+/// - `pedantic`    - 相当严格的规则，偶尔会有误报
+/// - `style`       - 应该用更符合习惯的方式编写的代码
+/// - `nursery`     - 正在开发中的新规则
+/// - `restriction` - 防止使用特定语言和库功能的规则
+/// - `all`         - 上述所有类别（除了 nursery）。不会自动启用插件
+///
+/// # 使用示例
+///
+/// ```bash
+/// # 启用 correctness 类别，但禁用 no-debugger 规则
+/// oxlint -D correctness -A no-debugger src/
+///
+/// # 禁用所有规则，只启用 no-debugger
+/// oxlint -A all -D no-debugger src/
+///
+/// # 启用 suspicious 和 pedantic
+/// oxlint -D suspicious -D pedantic src/
+/// ```
+///
+/// # 优先级
+///
+/// 后面的参数会覆盖前面的。例如：
+/// - `-D all -A no-var` - 启用所有规则，但禁用 no-var
+/// - `-A all -D no-var` - 禁用所有规则，但启用 no-var
 #[derive(Debug, Clone, Bpaf)]
 pub enum LintFilter {
+    /// 允许规则或类别（抑制 lint）
+    ///
+    /// 使用 `-A` 或 `--allow` 标志
     Allow(
-        /// Allow the rule or category (suppress the lint)
         #[bpaf(short('A'), long("allow"), argument("NAME"))]
         String,
     ),
+    /// 将规则或类别设为警告级别
+    ///
+    /// 使用 `-W` 或 `--warn` 标志
     Warn(
-        /// Deny the rule or category (emit a warning)
         #[bpaf(short('W'), long("warn"), argument("NAME"))]
         String,
     ),
+    /// 拒绝规则或类别（发出错误）
+    ///
+    /// 使用 `-D` 或 `--deny` 标志
     Deny(
-        /// Deny the rule or category (emit an error)
         #[bpaf(short('D'), long("deny"), argument("NAME"))]
         String,
     ),
 }
 
 impl LintFilter {
+    /// 将 LintFilter 转换为元组格式
+    ///
+    /// 内部使用，将命令行参数转换为 Linter 可以理解的格式。
     fn into_tuple(self) -> (AllowWarnDeny, String) {
         match self {
             Self::Allow(s) => (AllowWarnDeny::Allow, s),
@@ -169,43 +289,79 @@ impl LintFilter {
     }
 }
 
-/// Fix Problems
+/// 自动修复选项
+///
+/// 控制 Oxlint 如何自动修复发现的问题。
 #[derive(Debug, Clone, Bpaf)]
 pub struct FixOptions {
-    /// Fix as many issues as possible. Only unfixed issues are reported in the output
+    /// 修复尽可能多的问题
+    ///
+    /// 只有无法修复的问题会在输出中报告。
+    /// 只应用"安全"的修复，不会改变程序行为。
+    ///
+    /// # 使用
+    /// ```bash
+    /// oxlint --fix src/
+    /// ```
     #[bpaf(switch, hide_usage)]
     pub fix: bool,
-    /// Apply auto-fixable suggestions. May change program behavior.
+
+    /// 应用可自动修复的建议
+    ///
+    /// ⚠️ 注意：可能会改变程序行为！
+    /// 这包括一些不确定安全的修复建议。
+    ///
+    /// # 使用
+    /// ```bash
+    /// oxlint --fix-suggestions src/
+    /// ```
     #[bpaf(switch, hide_usage)]
     pub fix_suggestions: bool,
 
-    /// Apply dangerous fixes and suggestions.
+    /// 应用危险的修复和建议
+    ///
+    /// ⚠️ 警告：可能会破坏代码！
+    /// 这包括所有类型的修复，即使可能不安全。
+    ///
+    /// # 使用
+    /// ```bash
+    /// oxlint --fix-dangerously src/
+    /// ```
     #[bpaf(switch, hide_usage)]
     pub fix_dangerously: bool,
 }
 
 impl FixOptions {
+    /// 将命令行选项转换为 FixKind 标志
+    ///
+    /// 根据用户指定的选项组合，确定应该应用哪些类型的修复。
     pub fn fix_kind(&self) -> FixKind {
         let mut kind = FixKind::None;
 
+        // --fix: 启用安全修复
         if self.fix {
             kind.set(FixKind::SafeFix, true);
         }
 
+        // --fix-suggestions: 启用建议修复
         if self.fix_suggestions {
             kind.set(FixKind::Suggestion, true);
         }
 
+        // --fix-dangerously: 启用危险修复
         if self.fix_dangerously {
+            // 如果没有其他修复选项，启用所有修复
             if kind.is_none() {
                 kind.set(FixKind::Fix, true);
             }
+            // 标记为危险模式
             kind.set(FixKind::Dangerous, true);
         }
 
         kind
     }
 
+    /// 检查是否启用了任何修复选项
     pub fn is_enabled(&self) -> bool {
         self.fix || self.fix_suggestions || self.fix_dangerously
     }
@@ -315,18 +471,38 @@ pub struct EnablePlugins {
     pub vue_plugin: OverrideToggle,
 }
 
-/// Enables or disables a boolean option, or leaves it unset.
+/// 三态开关：启用/禁用/未设置
 ///
-/// We want CLI flags to modify whatever's set in the user's config file, but we don't want them
-/// changing default behavior if they're not explicitly passed by the user. This scheme is a bit
-/// convoluted, but needed due to architectural constraints imposed by `bpaf`.
+/// 用于表示命令行标志的三种状态，允许区分：
+/// - 用户明确要求启用
+/// - 用户明确要求禁用
+/// - 用户没有指定（使用配置文件或默认值）
+///
+/// # 设计原因
+///
+/// 我们希望 CLI 标志能够覆盖用户配置文件中的设置，但如果用户没有
+/// 明确传递标志，则不改变默认行为。这个方案虽然有点复杂，但由于
+/// `bpaf` 库的架构限制，这是必要的。
+///
+/// # 示例
+///
+/// ```bash
+/// # 启用 React 插件（覆盖配置文件）
+/// oxlint --react-plugin src/
+///
+/// # 禁用 Unicorn 插件（覆盖配置文件）
+/// oxlint --disable-unicorn-plugin src/
+///
+/// # 不指定（使用配置文件或默认值）
+/// oxlint src/
+/// ```
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OverrideToggle {
-    /// Override the option to enabled
+    /// 覆盖为启用状态
     Enable,
-    /// Override the option to disabled
+    /// 覆盖为禁用状态
     Disable,
-    /// Do not override.
+    /// 不覆盖（使用默认值或配置文件值）
     #[default]
     NotSet,
 }
@@ -352,16 +528,22 @@ impl From<OverrideToggle> for Option<bool> {
 }
 
 impl OverrideToggle {
+    /// 检查是否被明确设置为启用
     #[inline]
     pub fn is_enabled(self) -> bool {
         matches!(self, Self::Enable)
     }
 
+    /// 检查是否未被设置
     #[inline]
     pub fn is_not_set(self) -> bool {
         matches!(self, Self::NotSet)
     }
 
+    /// 如果已设置，则执行闭包
+    ///
+    /// 只有当开关被明确设置（Enable 或 Disable）时，才会调用闭包。
+    /// 如果是 NotSet，则不执行任何操作。
     pub fn inspect<F>(self, f: F)
     where
         F: FnOnce(bool),
@@ -373,7 +555,16 @@ impl OverrideToggle {
 }
 
 impl EnablePlugins {
+    /// 将命令行插件覆盖应用到插件配置
+    ///
+    /// 遍历所有插件开关，如果用户明确设置了，就覆盖配置文件中的值。
+    ///
+    /// # 特殊处理
+    ///
+    /// - Vitest 插件：如果启用 Vitest 且未明确禁用 Jest，会自动启用 Jest
+    ///   （因为 Vitest 插件复用了 Jest 规则）
     pub fn apply_overrides(&self, plugins: &mut LintPlugins) {
+        // 对每个插件，如果命令行有明确设置，就覆盖
         self.react_plugin.inspect(|yes| plugins.builtin.set(BuiltinLintPlugins::REACT, yes));
         self.unicorn_plugin.inspect(|yes| plugins.builtin.set(BuiltinLintPlugins::UNICORN, yes));
         self.oxc_plugin.inspect(|yes| plugins.builtin.set(BuiltinLintPlugins::OXC, yes));
@@ -392,7 +583,8 @@ impl EnablePlugins {
         self.regex_plugin.inspect(|yes| plugins.builtin.set(BuiltinLintPlugins::REGEX, yes));
         self.vue_plugin.inspect(|yes| plugins.builtin.set(BuiltinLintPlugins::VUE, yes));
 
-        // Without this, jest plugins adapted to vitest will not be enabled.
+        // 特殊处理：Vitest 依赖 Jest 规则
+        // 如果启用了 Vitest 但没有明确禁用 Jest，自动启用 Jest
         if self.vitest_plugin.is_enabled() && self.jest_plugin.is_not_set() {
             plugins.builtin.set(BuiltinLintPlugins::JEST, true);
         }

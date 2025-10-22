@@ -50,6 +50,9 @@ pub fn lint(external_linter: Option<ExternalLinter>) -> CliRunResult {
 
     // ====== 阶段 2: 解析命令行参数 ======
     let mut args = std::env::args_os();
+    for argument in args.by_ref() {
+        println!("{argument:?}");
+    }
     // 如果第一个参数是 `node`，则跳过脚本路径 (`node script.js ...`)
     // 否则，只跳过第一个参数（即 `oxlint` 本身）
     if args.next().is_some_and(|arg| arg == "node") {
