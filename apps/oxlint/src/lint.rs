@@ -78,8 +78,18 @@ impl LintRunner {
         // ====== 步骤 3: 解构 LintCommand 选项 ======
         // 从 self.options 中提取所有需要的配置选项
         // 这些选项包括文件路径、过滤器、警告级别、忽略规则等
+        //
+        // 🔍 paths 的来源追踪：
+        // 1. 用户在命令行输入: oxlint src/ test.js
+        // 2. bpaf 在 lib.rs:76 解析命令行参数，创建 LintCommand
+        // 3. LintCommand 通过 lib.rs:103 传递给 LintRunner::new()
+        // 4. LintRunner 将 LintCommand 存储在 self.options 中
+        // 5. 这里通过结构体解构将 paths 提取出来
+        //
+        // 解构前: self.options.paths (类型: Vec<PathBuf>)
+        // 解构后: paths (类型: Vec<PathBuf>)
         let LintCommand {
-            paths,                 // 要检查的文件或目录路径
+            paths,                 // 要检查的文件或目录路径（从命令行解析）
             filter,                // 规则过滤器（如 -A all, -D no-debugger）
             basic_options,         // 基础选项（如配置文件路径、tsconfig 路径）
             warning_options,       // 警告相关选项（quiet, max-warnings 等）

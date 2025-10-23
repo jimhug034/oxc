@@ -100,6 +100,16 @@ pub fn lint(external_linter: Option<ExternalLinter>) -> CliRunResult {
     // 2. 遍历文件系统收集要检查的文件
     // 3. 创建 oxc_linter::Linter 实例
     // 4. 通过 LintService 并行执行 linting
+    //
+    // 📝 paths 传递流程：
+    // 命令行 "oxlint src/ test.js" 
+    //   ↓ bpaf 解析
+    // LintCommand { paths: [PathBuf::from("src/"), PathBuf::from("test.js")], ... }
+    //   ↓ LintRunner::new(command, ...)
+    // LintRunner { options: LintCommand { paths: [...] }, ... }
+    //   ↓ LintRunner::run()
+    // 解构: let LintCommand { paths, ... } = self.options;
+    // 现在 paths 可以被使用了！
     LintRunner::new(command, external_linter).run(&mut stdout)
 }
 
