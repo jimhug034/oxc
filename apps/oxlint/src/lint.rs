@@ -43,10 +43,31 @@ impl LintRunner {
         }
     }
 
+    /// 执行 lint 检查的主方法
+    ///
+    /// 这是 oxlint 的核心执行流程，负责：
+    /// 1. 初始化输出格式化器
+    /// 2. 解析和验证配置
+    /// 3. 扫描需要检查的文件
+    /// 4. 执行 lint 规则
+    /// 5. 收集并输出诊断结果
+    ///
+    /// # 参数
+    /// - `self`: 消费 LintRunner，执行 linting
+    /// - `stdout`: 可变的 Write trait 对象，用于输出结果
+    ///
+    /// # 返回
+    /// `CliRunResult`: 表示 lint 检查的执行结果和退出状态
     pub(crate) fn run(self, stdout: &mut dyn Write) -> CliRunResult {
+        // ====== 步骤 1: 初始化输出格式化器 ======
+        // 根据用户指定的格式（如 "stylish", "json" 等）创建格式化器
+        // 用于后续输出诊断信息
         let format_str = self.options.output_options.format;
         let output_formatter = OutputFormatter::new(format_str);
 
+        // ====== 步骤 2: 处理列出规则的请求 ======
+        // 如果用户使用了 --list-rules 选项，直接列出所有可用规则并返回
+        // 这是一个快速退出路径，不需要进行实际的 lint 检查
         if self.options.list_rules {
             if let Some(output) = output_formatter.all_rules() {
                 print_and_flush_stdout(stdout, &output);
@@ -54,26 +75,45 @@ impl LintRunner {
             return CliRunResult::None;
         }
 
+        // ====== 步骤 3: 解构 LintCommand 选项 ======
+        // 从 self.options 中提取所有需要的配置选项
+        // 这些选项包括文件路径、过滤器、警告级别、忽略规则等
         let LintCommand {
-            paths,
-            filter,
-            basic_options,
-            warning_options,
-            ignore_options,
-            fix_options,
-            enable_plugins,
-            misc_options,
-            disable_nested_config,
-            inline_config_options,
+            paths,                 // 要检查的文件或目录路径
+            filter,                // 规则过滤器（如 -A all, -D no-debugger）
+            basic_options,         // 基础选项（如配置文件路径、tsconfig 路径）
+            warning_options,       // 警告相关选项（quiet, max-warnings 等）
+            ignore_options,        // 忽略相关选项（ignore-pattern, no-ignore 等）
+            fix_options,           // 自动修复选项
+            enable_plugins,        // 启用的插件列表
+            misc_options,          // 其他杂项选项（silent, print-config 等）
+            disable_nested_config, // 是否禁用嵌套配置
+            inline_config_options, // 内联配置选项（如注释中的 eslint-disable）
             ..
         } = self.options;
 
+        // 获取外部 linter 的引用（可能为 None）
+        // 外部 linter 主要用于处理一些需要额外上下文的情况
         let external_linter = self.external_linter.as_ref();
 
+        // ====== 步骤 4: 准备路径和计时 ======
+        // 保存路径列表（后续可能被修改）
         let mut paths = paths;
+        // 记录用户提供的原始路径数量，用于后续判断是否有文件被过滤掉
         let provided_path_count = paths.len();
+        // 记录开始时间，用于计算整个 lint 过程的耗时
         let now = Instant::now();
 
+        // ====== 步骤 5: 解析和验证过滤器 ======
+        // 将 CLI 传入的过滤器字符串（如 "all", "no-debugger"）解析为 LintFilter 对象
+        // 过滤器用于启用/禁用特定的 lint 规则
+        // 如果解析失败，打印错误信息并返回相应的错误状态
+        //
+        // 注意：这里使用 Self::get_filters 而不是 self.get_filters
+        // - Self (大写) 表示类型别名，指向 LintRunner
+        // - Self::method() 表示调用静态方法（associated function），不需要实例
+        // - self.method() 表示调用实例方法，需要实例
+        // get_filters 的第一个参数不是 self，所以是静态方法
         let filters = match Self::get_filters(filter) {
             Ok(filters) => filters,
             Err((result, message)) => {
@@ -82,15 +122,22 @@ impl LintRunner {
             }
         };
 
+        // ====== 步骤 6: 创建诊断报告处理器 ======
+        // 用于格式化错误消息，使其更易读
+        // 在测试模式下使用无主题版本以保持输出稳定
         let handler = if cfg!(any(test, feature = "force_test_reporter")) {
             GraphicalReportHandler::new_themed(miette::GraphicalTheme::none())
         } else {
             GraphicalReportHandler::new()
         };
 
+        // ====== 步骤 7: 查找和加载配置文件 ======
+        // 从当前工作目录查找 oxlint 配置文件（如 .oxlintrc.json）
+        // 如果用户通过 --config 指定了配置文件，则使用指定的文件
         let config_search_result =
             Self::find_oxlint_config(&self.cwd, basic_options.config.as_ref());
 
+        // 解析配置文件，如果失败则输出错误并返回
         let mut oxlintrc = match config_search_result {
             Ok(config) => config,
             Err(err) => {
@@ -106,15 +153,21 @@ impl LintRunner {
             }
         };
 
+        // ====== 步骤 8: 处理 ignore 选项和路径过滤 ======
+        // 根据 --ignore-pattern 和 .gitignore 文件过滤不需要检查的文件
         let mut override_builder = None;
 
+        // 如果用户没有使用 --no-ignore 选项，则需要应用 ignore 规则
         if !ignore_options.no_ignore {
+            // 创建 override builder，用于处理通过 CLI 传入的 ignore-pattern
             let mut builder = OverrideBuilder::new(&self.cwd);
 
+            // 添加用户指定的 ignore-pattern
+            // 注意：ignore crate 的逻辑是反向的，所以需要在模式前加上 "!"
             if !ignore_options.ignore_pattern.is_empty() {
                 for pattern in &ignore_options.ignore_pattern {
-                    // Meaning of ignore pattern is reversed
-                    // <https://docs.rs/ignore/latest/ignore/overrides/struct.OverrideBuilder.html#method.add>
+                    // ignore crate 的模式含义是反向的，需要加 "!" 前缀
+                    // 参考：https://docs.rs/ignore/latest/ignore/overrides/struct.OverrideBuilder.html#method.add
                     let pattern = format!("!{pattern}");
                     builder.add(&pattern).unwrap();
                 }
@@ -122,25 +175,29 @@ impl LintRunner {
 
             let builder = builder.build().unwrap();
 
-            // The ignore crate whitelists explicit paths, but priority
-            // should be given to the ignore file. Many users lint
-            // automatically and pass a list of changed files explicitly.
-            // To accommodate this, unless `--no-ignore` is passed,
-            // pre-filter the paths.
+            // ignore crate 允许通过显式路径，但应该优先考虑 ignore 文件
+            // 许多用户使用工具自动传递已更改的文件列表
+            // 除非传递了 --no-ignore，否则预先过滤路径
             if !paths.is_empty() {
+                // 创建 Gitignore 对象，读取 .gitignore 或自定义的 ignore 文件
                 let (ignore, _err) = Gitignore::new(&ignore_options.ignore_path);
 
+                // 过滤路径：移除所有被 ignore 文件匹配的文件
                 paths.retain_mut(|p| {
-                    // Try to prepend cwd to all paths
+                    // 尝试将 cwd 附加到所有路径前，获取绝对路径
                     let Ok(mut path) = absolute(self.cwd.join(&p)) else {
                         return false;
                     };
 
+                    // 交换 path 和 p，使用绝对路径替换相对路径
                     std::mem::swap(p, &mut path);
 
+                    // 如果是目录，总是保留
                     if path.is_dir() {
                         true
                     } else {
+                        // 文件需要检查是否被 ignore
+                        // 如果被 CLI pattern 或 ignore 文件匹配，则过滤掉
                         !(builder.matched(p, false).is_ignore()
                             || ignore.matched(path, false).is_ignore())
                     }
@@ -150,10 +207,12 @@ impl LintRunner {
             override_builder = Some(builder);
         }
 
+        // ====== 步骤 9: 处理空路径情况 ======
+        // 如果在过滤后没有路径了，需要特殊处理
         if paths.is_empty() {
-            // If explicit paths were provided, but all have been
-            // filtered, return early.
+            // 如果用户提供了显式路径，但所有路径都被过滤掉了，则提前返回
             if provided_path_count > 0 {
+                // 输出统计信息（0 个文件）
                 if let Some(end) = output_formatter.lint_command_info(&LintCommandInfo {
                     number_of_files: 0,
                     number_of_rules: None,
@@ -166,21 +225,33 @@ impl LintRunner {
                 return CliRunResult::LintNoFilesFound;
             }
 
+            // 如果没有提供任何路径，默认检查当前工作目录
             paths.push(self.cwd.clone());
         }
 
+        // ====== 步骤 10: 创建文件遍历器 ======
+        // Walk 类递归遍历目录，找到所有需要检查的文件
         let walker = Walk::new(&paths, &ignore_options, override_builder);
         let paths = walker.paths();
 
+        // ====== 步骤 11: 处理嵌套配置 ======
+        // 创建一个外部插件存储，用于管理从嵌套配置中加载的插件
         let mut external_plugin_store = ExternalPluginStore::default();
 
+        // 决定是否搜索嵌套配置文件
+        // 只有在以下条件都满足时才搜索：
+        // 1. 用户没有禁用嵌套配置
+        // 2. 用户没有显式指定 --config 选项（显式指定的配置具有绝对优先级）
         let search_for_nested_configs = !disable_nested_config &&
-            // If the `--config` option is explicitly passed, we should not search for nested config files
-            // as the passed config file takes absolute precedence.
+            // 如果显式传递了 `--config` 选项，不应该搜索嵌套配置文件
+            // 因为传递的配置文件具有绝对优先级
             basic_options.config.is_none();
 
+        // 收集嵌套配置文件中的 ignore patterns
         let mut nested_ignore_patterns = Vec::new();
 
+        // 查找并解析所有嵌套配置文件
+        // 嵌套配置允许不同目录有不同的 lint 规则
         let nested_configs = if search_for_nested_configs {
             match Self::get_nested_configs(
                 stdout,
@@ -198,22 +269,32 @@ impl LintRunner {
             FxHashMap::default()
         };
 
+        // ====== 步骤 12: 创建 ignore 匹配器 ======
+        // 用于判断文件是否应该被忽略
+        // 结合主配置和嵌套配置中的 ignore patterns
         let ignore_matcher = {
             LintIgnoreMatcher::new(&oxlintrc.ignore_patterns, &self.cwd, nested_ignore_patterns)
         };
 
+        // ====== 步骤 13: 应用插件启用覆盖 ======
+        // 根据 CLI 选项（如 --jest-plugin, --vitest-plugin）启用或禁用插件
         {
             let mut plugins = oxlintrc.plugins.unwrap_or_default();
             enable_plugins.apply_overrides(&mut plugins);
             oxlintrc.plugins = Some(plugins);
         }
 
+        // ====== 步骤 14: 准备配置用于打印或初始化 ======
+        // 如果用户使用了 --print-config 或 --init 选项，保存一份配置副本
         let oxlintrc_for_print = if misc_options.print_config || basic_options.init {
             Some(oxlintrc.clone())
         } else {
             None
         };
 
+        // ====== 步骤 15: 构建配置存储 ======
+        // 从 oxlintrc 配置创建 ConfigStoreBuilder
+        // ConfigStoreBuilder 会将配置文件转换为内部规则配置
         let config_builder = match ConfigStoreBuilder::from_oxlintrc(
             false,
             oxlintrc,
@@ -232,21 +313,31 @@ impl LintRunner {
                 return CliRunResult::InvalidOptionConfig;
             }
         }
-        .with_filters(&filters);
+        .with_filters(&filters); // 应用过滤器（-A, -D, -W 等选项）
 
+        // ====== 步骤 16: 处理打印配置或初始化配置 ======
+        // 如果用户使用了 --print-config 或 --init 选项，在这里处理
         if let Some(basic_config_file) = oxlintrc_for_print {
+            // 解析最终的配置文件内容
             let config_file = config_builder.resolve_final_config_file(basic_config_file);
+
+            // 如果使用 --print-config，直接打印配置并返回
             if misc_options.print_config {
                 print_and_flush_stdout(stdout, &config_file);
                 print_and_flush_stdout(stdout, "\n");
 
                 return CliRunResult::PrintConfigResult;
-            } else if basic_options.init {
+            }
+            // 如果使用 --init，创建默认配置文件
+            else if basic_options.init {
                 let schema_relative_path = "node_modules/oxlint/configuration_schema.json";
+
+                // 如果有 schema 文件，添加 $schema 引用以便 IDE 提供智能提示
                 let configuration = if self.cwd.join(schema_relative_path).is_file() {
                     let mut config_json: Value = serde_json::from_str(&config_file).unwrap();
                     if let Value::Object(ref mut obj) = config_json {
                         let mut json_object = serde_json::Map::new();
+                        // 添加 $schema 字段
                         json_object.insert(
                             "$schema".to_string(),
                             format!("./{schema_relative_path}").into(),
@@ -259,23 +350,29 @@ impl LintRunner {
                     config_file
                 };
 
+                // 写入配置文件到 .oxlintrc.json
                 if fs::write(Self::DEFAULT_OXLINTRC, configuration).is_ok() {
                     print_and_flush_stdout(stdout, "Configuration file created\n");
                     return CliRunResult::ConfigFileInitSucceeded;
                 }
 
-                // failed case
+                // 写入失败的情况
                 print_and_flush_stdout(stdout, "Failed to create configuration file\n");
                 return CliRunResult::ConfigFileInitFailed;
             }
         }
 
-        // TODO(refactor): pull this into a shared function, so that the language server can use
-        // the same functionality.
+        // ====== 步骤 17: 配置跨模块分析 ======
+        // TODO(refactor): 提取到共享函数，以便语言服务器可以复用相同的功能
+        // 检查是否启用了 import 插件，启用时需要跨模块分析来追踪导入依赖
         let use_cross_module = config_builder.plugins().has_import()
             || nested_configs.values().any(|config| config.plugins().has_import());
+        // 创建 LintServiceOptions，配置是否启用跨模块分析
         let mut options = LintServiceOptions::new(self.cwd).with_cross_module(use_cross_module);
 
+        // ====== 步骤 18: 构建最终的 lint 配置 ======
+        // 从 ConfigStoreBuilder 构建最终的 Config 对象
+        // Config 包含了所有规则的状态（开启/关闭/警告）
         let lint_config = match config_builder.build(&external_plugin_store) {
             Ok(config) => config,
             Err(e) => {
@@ -290,26 +387,33 @@ impl LintRunner {
             }
         };
 
+        // ====== 步骤 19: 配置未使用指令报告 ======
+        // 处理 --report-unused-disable-directives 选项
+        // 这个选项会报告哪些 eslint-disable 注释没有被使用（即规则实际没有被禁用）
         let report_unused_directives = match inline_config_options.report_unused_directives {
             ReportUnusedDirectives::WithoutSeverity(true) => Some(AllowWarnDeny::Warn),
             ReportUnusedDirectives::WithSeverity(Some(severity)) => Some(severity),
             _ => None,
         };
+
+        // ====== 步骤 20: 创建诊断服务 ======
+        // 诊断服务负责收集和格式化 lint 错误/警告
+        // tx_error 是发送诊断消息的通道
         let (mut diagnostic_service, tx_error) =
             Self::get_diagnostic_service(&output_formatter, &warning_options, &misc_options);
 
-        // ====== 创建配置存储 ======
+        // ====== 步骤 21: 创建配置存储 ======
         // ConfigStore 包含所有 lint 规则的配置，支持嵌套配置文件
         let config_store = ConfigStore::new(lint_config, nested_configs, external_plugin_store);
 
-        // ====== 过滤要检查的文件 ======
+        // ====== 步骤 22: 过滤要检查的文件 ======
         // 应用 ignore 模式，过滤掉不需要检查的文件
         let files_to_lint = paths
             .into_iter()
             .filter(|path| !ignore_matcher.should_ignore(Path::new(path)))
             .collect::<Vec<Arc<OsStr>>>();
 
-        // ====== 类型感知 linting（通过 tsgolint）======
+        // ====== 步骤 23: 类型感知 linting（通过 tsgolint）======
         // tsgolint 是用 Go 编写的外部工具，用于需要类型信息的规则
         // TODO: 如果启用了类型感知规则但找不到 `tsgolint`，应添加警告消息
         if self.options.type_aware {
@@ -322,7 +426,7 @@ impl LintRunner {
             }
         }
 
-        // ====== 🔥 关键：创建 oxc_linter::Linter 实例 ======
+        // ====== 步骤 24: 🔥 关键：创建 oxc_linter::Linter 实例 ======
         // 这是真正的 linter 对象，来自 oxc_linter crate
         // 配置了：
         // 1. 默认 lint 选项
@@ -336,7 +440,7 @@ impl LintRunner {
 
         let number_of_files = files_to_lint.len();
 
-        // ====== 配置 tsconfig 路径 ======
+        // ====== 步骤 25: 配置 tsconfig 路径 ======
         // 用于 import 插件解析路径别名和项目引用
         let tsconfig = basic_options.tsconfig;
         if let Some(path) = tsconfig.as_ref() {
@@ -359,7 +463,7 @@ impl LintRunner {
 
         let number_of_rules = linter.number_of_rules(self.options.type_aware);
 
-        // ====== 🔥 关键：在独立线程中执行 linting ======
+        // ====== 步骤 26: 🔥 关键：在独立线程中执行 linting ======
         // 在另一个线程中生成 linting 任务，这样诊断信息可以立即从 diagnostic_service.run 打印出来
         // 这实现了边检查边输出的效果，提升用户体验
         rayon::spawn(move || {
@@ -391,12 +495,13 @@ impl LintRunner {
             lint_service.run(&tx_error);
         });
 
-        // ====== 收集并输出诊断结果 ======
+        // ====== 步骤 27: 收集并输出诊断结果 ======
         // diagnostic_service 在主线程中运行，接收来自 lint_service 的诊断消息
         // 这允许实时打印 lint 错误，而不是等待所有文件都检查完毕
         let diagnostic_result = diagnostic_service.run(stdout);
 
-        // ====== 输出统计信息 ======
+        // ====== 步骤 28: 输出统计信息 ======
+        // 打印检查的文件数、规则数、线程数和耗时
         if let Some(end) = output_formatter.lint_command_info(&LintCommandInfo {
             number_of_files,
             number_of_rules,
@@ -406,8 +511,9 @@ impl LintRunner {
             print_and_flush_stdout(stdout, &end);
         }
 
-        // ====== 确定退出状态 ======
+        // ====== 步骤 29: 确定退出状态 ======
         // 根据诊断结果返回适当的退出码
+        // 退出码决定了程序的成功或失败状态
         if diagnostic_result.errors_count() > 0 {
             CliRunResult::LintFoundErrors
         } else if warning_options.deny_warnings && diagnostic_result.warnings_count() > 0 {
@@ -444,24 +550,83 @@ impl LintRunner {
         )
     }
 
-    // moved into a separate function for readability, but it's only ever used
-    // in one place.
+    /// 解析和验证规则过滤器
+    ///
+    /// 这个方法将命令行传入的过滤器字符串（如 "all", "no-debugger", "eslint/no-unused-vars"）
+    /// 解析为 `LintFilter` 对象，并在解析失败时返回详细的错误信息。
+    ///
+    /// # 什么是过滤器？
+    ///
+    /// 过滤器用于启用或禁用特定的 lint 规则，通过 `-A`、`-W`、`-D` 标志指定：
+    /// - `-A` (Allow): 允许规则（通常是关闭规则）
+    /// - `-W` (Warn): 将规则设为警告级别
+    /// - `-D` (Deny): 将规则设为错误级别（通常是开启规则）
+    ///
+    /// # 用法示例
+    ///
+    /// ```bash
+    /// # 允许所有规则，但拒绝 no-debugger
+    /// oxlint -A all -D no-debugger src/
+    ///
+    /// # 警告级别启用 no-console
+    /// oxlint -W no-console src/
+    ///
+    /// # 使用插件规则
+    /// oxlint -D eslint/no-unused-vars src/
+    /// ```
+    ///
+    /// # 参数
+    ///
+    /// - `filters_arg`: 从命令行解析的过滤器列表
+    ///   - 每个元素是一个元组 `(AllowWarnDeny, String)`
+    ///   - `AllowWarnDeny` 是严重性级别（Allow/Warn/Deny）
+    ///   - `String` 是规则名称（如 "all", "no-debugger", "eslint/no-unused-vars"）
+    ///
+    /// # 返回值
+    ///
+    /// - `Ok(Vec<LintFilter>)`: 成功解析的所有过滤器
+    /// - `Err((CliRunResult, String))`: 解析失败，返回错误码和用户友好的错误消息
+    ///
+    /// # 错误情况
+    ///
+    /// 1. **空过滤器**: 用户提供了严重性级别但没有指定规则名称
+    ///    - 例如：`oxlint -D`（没有规则名）
+    ///    - 错误码：`InvalidOptionSeverityWithoutFilter`
+    ///
+    /// 2. **缺少插件名**: 规则名格式不完整，缺少 `plugin/rule` 的前半部分
+    ///    - 例如：`oxlint -D /rule-name`
+    ///    - 错误码：`InvalidOptionSeverityWithoutPluginName`
+    ///
+    /// 3. **缺少规则名**: 规则名格式不完整，缺少 `plugin/rule` 的后半部分
+    ///    - 例如：`oxlint -D plugin/`
+    ///    - 错误码：`InvalidOptionSeverityWithoutRuleName`
+    ///
+    /// # 设计说明
+    ///
+    /// 这个方法被单独提取出来是为了提高代码可读性。
+    /// 虽然目前只在一个地方使用，但将复杂的验证逻辑与主流程分离
+    /// 使得代码更容易理解和测试。
     fn get_filters(
         filters_arg: Vec<(AllowWarnDeny, String)>,
     ) -> Result<Vec<LintFilter>, (CliRunResult, String)> {
+        // 预分配容量，避免后续 push 时多次重新分配内存
         let mut filters = Vec::with_capacity(filters_arg.len());
 
+        // 遍历每个过滤器参数，逐个解析
         for (severity, filter_arg) in filters_arg {
             match LintFilter::new(severity, filter_arg) {
+                // ✅ 解析成功：将过滤器添加到列表中
                 Ok(filter) => {
                     filters.push(filter);
                 }
+                // ❌ 错误 1: 空过滤器（用户没有提供规则名称）
                 Err(InvalidFilterKind::Empty) => {
                     return Err((
                         CliRunResult::InvalidOptionSeverityWithoutFilter,
                         format!("Cannot {severity} an empty filter.\n"),
                     ));
                 }
+                // ❌ 错误 2: 缺少插件名（规则名格式应为 plugin/rule）
                 Err(InvalidFilterKind::PluginMissing(filter)) => {
                     return Err((
                         CliRunResult::InvalidOptionSeverityWithoutPluginName,
@@ -470,6 +635,7 @@ impl LintRunner {
                         ),
                     ));
                 }
+                // ❌ 错误 3: 缺少规则名（规则名格式应为 plugin/rule）
                 Err(InvalidFilterKind::RuleMissing(filter)) => {
                     return Err((
                         CliRunResult::InvalidOptionSeverityWithoutRuleName,
@@ -481,6 +647,7 @@ impl LintRunner {
             }
         }
 
+        // 返回成功解析的所有过滤器
         Ok(filters)
     }
 

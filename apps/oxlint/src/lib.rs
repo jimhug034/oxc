@@ -61,7 +61,17 @@ pub fn lint(external_linter: Option<ExternalLinter>) -> CliRunResult {
     }
     let args = args.collect::<Vec<_>>();
 
-    // 使用 bpaf 库解析命令行参数（解析成 LintCommand 结构）
+    // ====== 使用 bpaf 库解析命令行参数 ======
+    // 1. lint_command() 是由 bpaf 的 #[derive(Bpaf)] 宏自动生成的函数
+    //    它返回一个 Parser，用于解析命令行参数
+    // 2. paths 字段在 LintCommand 中的定义：
+    //    #[bpaf(positional("PATH"), many, guard(validate_paths, PATHS_ERROR_MESSAGE))]
+    //    pub paths: Vec<PathBuf>
+    //    - positional("PATH"): 位置参数，名称为 "PATH"
+    //    - many: 允许多个值
+    //    - guard(validate_paths, ...): 使用 validate_paths 函数验证路径（禁止包含 ".."）
+    // 3. bpaf 会将位置参数（即命令行中不是以 - 或 -- 开头的参数）解析到 paths 字段
+    //    例如：oxlint src/ test.js -> paths = [PathBuf::from("src/"), PathBuf::from("test.js")]
     let cmd = crate::cli::lint_command();
     let command = match cmd.run_inner(&*args) {
         Ok(cmd) => cmd,

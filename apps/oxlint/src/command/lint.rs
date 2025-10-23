@@ -256,24 +256,15 @@ pub enum LintFilter {
     /// 允许规则或类别（抑制 lint）
     ///
     /// 使用 `-A` 或 `--allow` 标志
-    Allow(
-        #[bpaf(short('A'), long("allow"), argument("NAME"))]
-        String,
-    ),
+    Allow(#[bpaf(short('A'), long("allow"), argument("NAME"))] String),
     /// 将规则或类别设为警告级别
     ///
     /// 使用 `-W` 或 `--warn` 标志
-    Warn(
-        #[bpaf(short('W'), long("warn"), argument("NAME"))]
-        String,
-    ),
+    Warn(#[bpaf(short('W'), long("warn"), argument("NAME"))] String),
     /// 拒绝规则或类别（发出错误）
     ///
     /// 使用 `-D` 或 `--deny` 标志
-    Deny(
-        #[bpaf(short('D'), long("deny"), argument("NAME"))]
-        String,
-    ),
+    Deny(#[bpaf(short('D'), long("deny"), argument("NAME"))] String),
 }
 
 impl LintFilter {
@@ -806,10 +797,7 @@ pub enum ReportUnusedDirectives {
     /// ```
     ///
     /// 更多信息：<https://eslint.org/docs/latest/use/command-line-interface#--report-unused-disable-directives>
-    WithoutSeverity(
-        #[bpaf(long("report-unused-disable-directives"), switch, hide_usage)]
-        bool,
-    ),
+    WithoutSeverity(#[bpaf(long("report-unused-disable-directives"), switch, hide_usage)] bool),
     /// 报告未使用的禁用指令（指定严重性级别）
     ///
     /// 与 `--report-unused-disable-directives` 相同，但允许指定报告的严重性级别。
