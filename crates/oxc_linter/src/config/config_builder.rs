@@ -77,31 +77,54 @@ impl ConfigStoreBuilder {
         Self { rules, external_rules, config, categories, overrides, extended_paths }
     }
 
-    /// Create a [`ConfigStoreBuilder`] from a loaded or manually built [`Oxlintrc`].
-    /// `start_empty` will configure the builder to contain only the
-    /// configuration settings from the config. When this is `false`, the config
-    /// will be applied on top of a default [`Oxlintrc`].
+    /// 从已加载或手动构建的 [`Oxlintrc`] 创建 [`ConfigStoreBuilder`]
     ///
-    /// # Example
-    /// Here's how to create a [`Config`] from a `.oxlintrc.json` file.
+    /// # 工作原理
+    ///
+    /// 该方法负责解析和合并配置文件，处理以下内容：
+    /// 1. **extends 继承**：解析配置文件中的 `extends` 字段，递归加载和合并继承的配置
+    /// 2. **外部插件**：加载和初始化外部插件（如 ESLint 插件）
+    /// 3. **规则配置**：应用规则设置，包括内置规则和外部插件规则
+    /// 4. **类别配置**：处理规则类别的启用/禁用
+    /// 5. **覆盖配置**：处理基于文件路径的规则覆盖
+    ///
+    /// # 参数
+    ///
+    /// - `start_empty`: 当为 `true` 时，构建器只包含配置文件中的设置，不应用默认配置
+    ///   当为 `false` 时，配置将应用在默认 [`Oxlintrc`] 之上
+    /// - `oxlintrc`: 要解析的配置文件对象
+    /// - `external_linter`: 可选的外部 linter 实例（用于加载外部插件）
+    /// - `external_plugin_store`: 外部插件存储，用于管理和查找外部插件规则
+    ///
+    /// # 示例
+    ///
+    /// 从 `.oxlintrc.json` 文件创建配置：
     /// ```ignore
     /// use oxc_linter::{ConfigBuilder, Oxlintrc};
     /// let oxlintrc = Oxlintrc::from_file("path/to/.oxlintrc.json").unwrap();
     /// let config_store = ConfigStoreBuilder::from_oxlintrc(true, oxlintrc).build();
-    /// // you can use `From` as a shorthand for `from_oxlintrc(false, oxlintrc)`
+    /// // 也可以使用 `From` trait 作为简写，等价于 `from_oxlintrc(false, oxlintrc)`
     /// let config_store = ConfigStoreBuilder::from(oxlintrc).build();
     /// ```
     ///
-    /// # Errors
+    /// # 错误
     ///
-    /// Returns [`ConfigBuilderError::InvalidConfigFile`] if a referenced config file is not valid.
+    /// 如果引用的配置文件无效，返回 [`ConfigBuilderError::InvalidConfigFile`]
     pub fn from_oxlintrc(
         start_empty: bool,
         oxlintrc: Oxlintrc,
         external_linter: Option<&ExternalLinter>,
         external_plugin_store: &mut ExternalPluginStore,
     ) -> Result<Self, ConfigBuilderError> {
-        // TODO: this can be cached to avoid re-computing the same oxlintrc
+        // TODO: 可以缓存以避免重复计算相同的 oxlintrc
+
+        /// 递归解析配置文件继承链
+        ///
+        /// 解析 `extends` 字段中指定的配置文件，并从最底层配置开始向上合并，
+        /// 确保子配置可以覆盖父配置的设置。
+        ///
+        /// # 返回
+        /// 返回合并后的配置和所有被加载的配置文件路径（用于监听文件变化）
         fn resolve_oxlintrc_config(
             config: Oxlintrc,
         ) -> Result<(Oxlintrc, Vec<PathBuf>), ConfigBuilderError> {
@@ -112,22 +135,26 @@ impl ConfigStoreBuilder {
 
             let mut oxlintrc = config;
 
+            // 从后向前遍历 extends 数组（最底层配置在前）
+            // 这样可以确保父配置先被加载，子配置后加载并覆盖父配置
             for path in extends.iter().rev() {
+                // 跳过 ESLint 命名配置（不支持）
                 if path.starts_with("eslint:") || path.starts_with("plugin:") {
-                    // `eslint:` and `plugin:` named configs are not supported
                     continue;
                 }
-                // if path does not include a ".", then we will heuristically skip it since it
-                // kind of looks like it might be a named config
+
+                // 启发式检查：如果路径不包含 "."，可能是命名配置，跳过
                 if !path.to_string_lossy().contains('.') {
                     continue;
                 }
 
+                // 解析相对路径：如果有根路径，则拼接；否则使用原路径
                 let path = match root_path {
                     Some(p) => &p.join(path),
                     None => path,
                 };
 
+                // 加载被继承的配置文件
                 let extends_oxlintrc = Oxlintrc::from_file(path).map_err(|e| {
                     ConfigBuilderError::InvalidConfigFile {
                         file: path.display().to_string(),
@@ -135,10 +162,13 @@ impl ConfigStoreBuilder {
                     }
                 })?;
 
+                // 记录被加载的配置文件路径（用于文件监听）
                 extended_paths.push(path.clone());
 
+                // 递归解析继承链：被继承的配置也可能有自己的 extends
                 let (extends, extends_paths) = resolve_oxlintrc_config(extends_oxlintrc)?;
 
+                // 合并配置：子配置会覆盖父配置中相同的设置
                 oxlintrc = oxlintrc.merge(extends);
                 extended_paths.extend(extends_paths);
             }
@@ -146,22 +176,33 @@ impl ConfigStoreBuilder {
             Ok((oxlintrc, extended_paths))
         }
 
+        // ========================================================================================
+        // 步骤 1: 解析配置文件继承链并合并配置
+        // ========================================================================================
         let (oxlintrc, extended_paths) = resolve_oxlintrc_config(oxlintrc)?;
 
-        // Collect external plugins from both base config and overrides
+        // ========================================================================================
+        // 步骤 2: 收集外部插件引用（来自基础配置和覆盖配置）
+        // ========================================================================================
         let mut external_plugins = FxHashSet::default();
 
+        // 从基础配置中收集外部插件
         if let Some(base_plugins) = oxlintrc.plugins.as_ref() {
             external_plugins.extend(base_plugins.external.iter().cloned());
         }
 
+        // 从覆盖配置中收集外部插件
         for r#override in &oxlintrc.overrides {
             if let Some(override_plugins) = &r#override.plugins {
                 external_plugins.extend(override_plugins.external.iter().cloned());
             }
         }
 
+        // ========================================================================================
+        // 步骤 3: 加载外部插件（如 ESLint 插件）
+        // ========================================================================================
         if !external_plugins.is_empty() {
+            // 如果没有配置外部 linter，则报错
             let external_linter =
                 external_linter.ok_or(ConfigBuilderError::NoExternalLinterConfigured)?;
 
@@ -170,6 +211,7 @@ impl ConfigStoreBuilder {
             #[expect(clippy::missing_panics_doc, reason = "oxlintrc.path is always a file path")]
             let oxlintrc_dir = oxlintrc.path.parent().unwrap();
 
+            // 加载每个外部插件
             for plugin_specifier in &external_plugins {
                 Self::load_external_plugin(
                     oxlintrc_dir,
@@ -180,20 +222,35 @@ impl ConfigStoreBuilder {
                 )?;
             }
         }
+
+        // ========================================================================================
+        // 步骤 4: 获取插件配置（如果没有则使用默认值）
+        // ========================================================================================
         let plugins = oxlintrc.plugins.unwrap_or_default();
 
+        // ========================================================================================
+        // 步骤 5: 初始化规则映射
+        // ========================================================================================
+        // 如果 start_empty 为 true，则从空规则集开始；否则默认启用 correctness 类别的规则
         let rules = if start_empty {
             FxHashMap::default()
         } else {
             Self::warn_correctness(plugins.builtin)
         };
 
+        // ========================================================================================
+        // 步骤 6: 处理规则类别配置
+        // ========================================================================================
         let mut categories = oxlintrc.categories.clone();
 
+        // 如果不是从空配置开始，默认启用 correctness 类别
         if !start_empty {
             categories.insert(RuleCategory::Correctness, AllowWarnDeny::Warn);
         }
 
+        // ========================================================================================
+        // 步骤 7: 创建 LintConfig 对象
+        // ========================================================================================
         let config = LintConfig {
             plugins,
             settings: oxlintrc.settings,
@@ -202,6 +259,9 @@ impl ConfigStoreBuilder {
             path: Some(oxlintrc.path),
         };
 
+        // ========================================================================================
+        // 步骤 8: 创建构建器实例
+        // ========================================================================================
         let mut builder = Self {
             rules,
             external_rules: FxHashMap::default(),
@@ -211,10 +271,16 @@ impl ConfigStoreBuilder {
             extended_paths,
         };
 
+        // ========================================================================================
+        // 步骤 9: 应用配置中的类别过滤器
+        // ========================================================================================
         for filter in oxlintrc.categories.filters() {
             builder = builder.with_filter(&filter);
         }
 
+        // ========================================================================================
+        // 步骤 10: 应用规则覆盖配置
+        // ========================================================================================
         {
             let all_rules = builder.get_all_rules();
 
@@ -232,16 +298,14 @@ impl ConfigStoreBuilder {
         Ok(builder)
     }
 
-    /// Configure what linter plugins are enabled.
+    /// 配置启用的 linter 插件
     ///
-    /// Turning on a plugin will not automatically enable any of its rules. You must do this
-    /// yourself (using [`with_filters`]) after turning the plugin on. Note that turning off a
-    /// plugin that was already on will cause all rules in that plugin to be turned off. Any
-    /// configuration you passed to those rules will be lost. You'll need to re-add it if/when you
-    /// turn that rule back on.
+    /// 启用插件不会自动启用其中的任何规则。必须在启用插件后自行启用规则（使用 [`with_filters`]）。
+    /// 注意：关闭已经启用的插件会导致该插件的所有规则被关闭，传递给这些规则的配置将丢失。
+    /// 如果需要重新打开该插件，需要重新添加配置。
     ///
-    /// This method sets what plugins are enabled and disabled, overwriting whatever existing
-    /// config is set. If you are looking to add/remove plugins, use [`and_builtin_plugins`]
+    /// 此方法设置哪些插件被启用和禁用，会覆盖现有的配置。
+    /// 如果只是添加/移除某些插件，请使用 [`and_builtin_plugins`]
     ///
     /// [`with_filters`]: ConfigStoreBuilder::with_filters
     /// [`and_builtin_plugins`]: ConfigStoreBuilder::and_builtin_plugins
@@ -251,15 +315,15 @@ impl ConfigStoreBuilder {
         self
     }
 
+    /// 设置规则类别配置
     pub fn with_categories(mut self, categories: OxlintCategories) -> Self {
         self.categories = categories;
         self
     }
 
-    /// Enable or disable a set of plugins, leaving unrelated plugins alone.
+    /// 启用或禁用一组插件，不影响其他插件
     ///
-    /// See [`ConfigStoreBuilder::with_builtin_plugins`] for details on how plugin configuration affects your
-    /// rules.
+    /// 详情参见 [`ConfigStoreBuilder::with_builtin_plugins`] 了解插件配置如何影响规则
     #[inline]
     pub fn and_builtin_plugins(mut self, plugins: BuiltinLintPlugins, enabled: bool) -> Self {
         self.config.plugins.builtin.set(plugins, enabled);
@@ -277,12 +341,13 @@ impl ConfigStoreBuilder {
         self
     }
 
-    /// Appends an override to the end of the current list of overrides.
+    /// 向当前覆盖列表的末尾追加覆盖配置
     pub fn with_overrides<O: IntoIterator<Item = OxlintOverride>>(mut self, overrides: O) -> Self {
         self.overrides.extend(overrides);
         self
     }
 
+    /// 批量应用过滤器配置
     pub fn with_filters<'a, I: IntoIterator<Item = &'a LintFilter>>(mut self, filters: I) -> Self {
         for filter in filters {
             self = self.with_filter(filter);
@@ -290,6 +355,9 @@ impl ConfigStoreBuilder {
         self
     }
 
+    /// 应用单个过滤器配置
+    ///
+    /// 根据过滤器的类型和严重程度（allow/warn/deny）来修改规则配置
     pub fn with_filter(mut self, filter: &LintFilter) -> Self {
         let (severity, filter) = filter.into();
 
@@ -321,13 +389,15 @@ impl ConfigStoreBuilder {
         self
     }
 
-    /// Warn/Deny a let of rules based on some predicate. Rules already in `self.rules` get
-    /// re-configured, while those that are not are added. Affects rules where `query` returns
-    /// `true`.
+    /// 获取所有可用的规则列表
     fn get_all_rules(&self) -> Vec<RuleEnum> {
         self.get_all_rules_for_plugins(None)
     }
 
+    /// 获取指定插件的所有规则
+    ///
+    /// # 参数
+    /// - `override_plugins`: 可选的插件覆盖配置，如果提供则使用该配置，否则使用默认插件配置
     fn get_all_rules_for_plugins(&self, override_plugins: Option<&LintPlugins>) -> Vec<RuleEnum> {
         let mut builtin_plugins = if let Some(override_plugins) = override_plugins {
             self.config.plugins.builtin | override_plugins.builtin
@@ -372,9 +442,17 @@ impl ConfigStoreBuilder {
         }
     }
 
-    /// Builds a [`Config`] from the current state of the builder.
-    /// # Errors
-    /// Returns [`ConfigBuilderError::UnknownRules`] if there are rules that could not be matched.
+    /// 从构建器的当前状态构建 [`Config`]
+    ///
+    /// # 工作流程
+    /// 1. 处理 Vitest 和 Jest 插件的兼容性
+    /// 2. 解析所有覆盖配置
+    /// 3. 过滤掉已禁用插件的规则
+    /// 4. 对规则进行排序
+    /// 5. 创建最终的 Config 对象
+    ///
+    /// # 错误
+    /// 如果有无法匹配的规则，返回 [`ConfigBuilderError::UnknownRules`]
     pub fn build(
         mut self,
         external_plugin_store: &ExternalPluginStore,
@@ -447,7 +525,9 @@ impl ConfigStoreBuilder {
         Ok(ResolvedOxlintOverrides::new(resolved))
     }
 
-    /// Warn for all correctness rules in the given set of plugins.
+    /// 为给定插件集中的所有 correctness 规则设置为 warn 级别
+    ///
+    /// 这是默认配置，用于确保重要的正确性规则默认被启用
     fn warn_correctness(mut plugins: BuiltinLintPlugins) -> FxHashMap<RuleEnum, AllowWarnDeny> {
         if plugins.contains(BuiltinLintPlugins::VITEST) {
             plugins = plugins.union(BuiltinLintPlugins::JEST);
@@ -571,23 +651,18 @@ impl Debug for ConfigStoreBuilder {
     }
 }
 
-/// An error that can occur while building a [`Config`] from an [`Oxlintrc`].
+/// 从 [`Oxlintrc`] 构建 [`Config`] 时可能发生的错误
 #[derive(Eq, PartialEq, Debug, Clone)]
 pub enum ConfigBuilderError {
-    /// There were unknown rules that could not be matched to any known plugins/rules.
-    UnknownRules {
-        rules: Vec<ESLintRule>,
-    },
-    /// A configuration file was referenced which was not valid for some reason.
-    InvalidConfigFile {
-        file: String,
-        reason: String,
-    },
-    PluginLoadFailed {
-        plugin_specifier: String,
-        error: String,
-    },
+    /// 存在无法匹配到任何已知插件/规则的未知规则
+    UnknownRules { rules: Vec<ESLintRule> },
+    /// 引用的配置文件由于某种原因无效
+    InvalidConfigFile { file: String, reason: String },
+    /// 外部插件加载失败
+    PluginLoadFailed { plugin_specifier: String, error: String },
+    /// 外部规则查找错误
     ExternalRuleLookupError(ExternalRuleLookupError),
+    /// 未配置外部 linter
     NoExternalLinterConfigured,
 }
 

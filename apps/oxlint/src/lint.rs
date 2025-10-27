@@ -661,6 +661,53 @@ impl LintRunner {
         Ok(filters)
     }
 
+    /// 收集嵌套的配置文件
+    ///
+    /// 该方法从给定的文件路径中提取所有唯一的目录，并在这些目录及其祖先目录中查找
+    /// oxlint 配置文件（oxlintrc.json），然后解析这些配置文件并构建配置对象。
+    ///
+    /// # 工作流程
+    ///
+    /// 1. **收集目录**：遍历所有文件路径，收集每个文件及其所有祖先目录
+    ///    - 例如：`/some/file.js` 会收集 `/some` 和 `/`
+    ///    - 例如：`/some/other/file.js` 会收集 `/some/other`, `/some`, 和 `/`
+    ///
+    /// 2. **查找配置**：在每个唯一目录中查找 oxlint 配置文件
+    ///
+    /// 3. **解析配置**：解析找到的配置文件，并应用过滤器构建最终配置
+    ///
+    /// 4. **收集忽略模式**：从配置文件中提取忽略模式，用于后续文件过滤
+    ///
+    /// # 参数
+    ///
+    /// - `stdout`: 标准输出流，用于打印错误信息
+    /// - `handler`: 图形化报告处理器，用于格式化错误信息
+    /// - `filters`: lint 过滤器列表，用于过滤要检查的规则
+    /// - `paths`: 要检查的文件路径列表
+    /// - `external_linter`: 可选的外部 linter（如 ESLint）
+    /// - `external_plugin_store`: 外部插件存储，用于加载和管理外部插件
+    /// - `nested_ignore_patterns`: 输出参数，用于收集配置中的忽略模式
+    ///
+    /// # 返回
+    ///
+    /// - `Ok(FxHashMap<PathBuf, Config>)`: 成功时返回目录路径到配置对象的映射
+    /// - `Err(CliRunResult::InvalidOptionConfig)`: 配置文件解析或构建失败时返回错误
+    ///
+    /// # 示例
+    ///
+    /// 假设有以下文件结构：
+    /// ```
+    /// /project/
+    ///   oxlintrc.json (根配置)
+    ///   src/
+    ///     oxlintrc.json (子目录配置)
+    ///     file.js
+    /// ```
+    ///
+    /// 对于 `file.js`，此方法会：
+    /// 1. 检查 `/project/src/` 目录，找到 `oxlintrc.json`
+    /// 2. 检查 `/project/` 目录，找到 `oxlintrc.json`
+    /// 3. 返回两个配置的映射
     fn get_nested_configs(
         stdout: &mut dyn Write,
         handler: &GraphicalReportHandler,
@@ -672,48 +719,62 @@ impl LintRunner {
     ) -> Result<FxHashMap<PathBuf, Config>, CliRunResult> {
         // TODO(perf): benchmark whether or not it is worth it to store the configurations on a
         // per-file or per-directory basis, to avoid calling `.parent()` on every path.
+
+        // 存储找到的 oxlintrc 配置文件
         let mut nested_oxlintrc = FxHashMap::<&Path, Oxlintrc>::default();
+        // 存储构建好的配置对象
         let mut nested_configs = FxHashMap::<PathBuf, Config>::default();
-        // get all of the unique directories among the paths to use for search for
-        // oxlint config files in those directories and their ancestors
-        // e.g. `/some/file.js` will check `/some` and `/`
-        //      `/some/other/file.js` will check `/some/other`, `/some`, and `/`
+
+        // 步骤 1: 收集所有唯一的目录
+        // 对于每个文件路径，从父目录开始向上遍历到根目录
+        // 例如：`/some/file.js` 会检查 `/some` 和 `/`
+        //       `/some/other/file.js` 会检查 `/some/other`, `/some`, 和 `/`
         let mut directories = FxHashSet::default();
         for path in paths {
             let path = Path::new(path);
-            // Start from the file's parent directory and walk up the tree
+            // 从文件的父目录开始向上遍历目录树
             let mut current = path.parent();
             while let Some(dir) = current {
-                // NOTE: Initial benchmarking showed that it was faster to iterate over the directories twice
-                // rather than constructing the configs in one iteration. It's worth re-benchmarking that though.
+                // NOTE: 初始基准测试表明，遍历目录两次比在一次迭代中构建配置更快
+                // 值得重新进行基准测试以验证这一点
                 let inserted = directories.insert(dir);
                 if !inserted {
+                    // 如果目录已经存在，说明之前的路径已经遍历到这个目录了
+                    // 无需继续向上遍历（因为祖先目录都已经被遍历过了）
                     break;
                 }
                 current = dir.parent();
             }
         }
+
+        // 步骤 2: 在每个目录中查找 oxlint 配置文件
         for directory in directories {
             #[expect(clippy::match_same_arms)]
             match Self::find_oxlint_config_in_directory(directory) {
                 Ok(Some(v)) => {
+                    // 找到配置文件，存储起来
                     nested_oxlintrc.insert(directory, v);
                 }
-                Ok(None) => {}
+                Ok(None) => {
+                    // 目录中没有配置文件，跳过
+                }
                 Err(_) => {
-                    // TODO(camc314): report this error
+                    // TODO(camc314): 报告配置查找错误
                 }
             }
         }
 
-        // iterate over each config and build the ConfigStore
+        // 步骤 3: 遍历每个找到的配置文件，解析并构建配置对象
         for (dir, oxlintrc) in nested_oxlintrc {
-            // Collect ignore patterns and their root
+            // 步骤 3.1: 收集忽略模式及其根目录
+            // 这些忽略模式用于后续的文件过滤
             nested_ignore_patterns.push((
                 oxlintrc.ignore_patterns.clone(),
                 oxlintrc.path.parent().unwrap().to_path_buf(),
             ));
-            // TODO(refactor): clean up all of the error handling in this function
+
+            // TODO(refactor): 清理此函数中的所有错误处理逻辑
+            // 步骤 3.2: 从 oxlintrc 文件创建配置构建器
             let builder = match ConfigStoreBuilder::from_oxlintrc(
                 false,
                 oxlintrc,
@@ -722,6 +783,7 @@ impl LintRunner {
             ) {
                 Ok(builder) => builder,
                 Err(e) => {
+                    // 配置文件解析失败，打印错误并返回
                     print_and_flush_stdout(
                         stdout,
                         &format!(
@@ -732,11 +794,13 @@ impl LintRunner {
                     return Err(CliRunResult::InvalidOptionConfig);
                 }
             }
-            .with_filters(filters);
+            .with_filters(filters); // 应用 lint 过滤器
 
+            // 步骤 3.3: 构建最终配置对象
             let config = match builder.build(external_plugin_store) {
                 Ok(config) => config,
                 Err(e) => {
+                    // 配置构建失败，打印错误并返回
                     print_and_flush_stdout(
                         stdout,
                         &format!(
@@ -747,9 +811,12 @@ impl LintRunner {
                     return Err(CliRunResult::InvalidOptionConfig);
                 }
             };
+
+            // 将配置存储到映射表中
             nested_configs.insert(dir.to_path_buf(), config);
         }
 
+        // 返回所有目录路径到配置对象的映射
         Ok(nested_configs)
     }
 

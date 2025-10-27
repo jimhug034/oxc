@@ -1,9 +1,51 @@
-//! All registered lint rules.
+//! # Lint 规则注册中心
 //!
-//! New rules need be added to these `mod` statements and also the macro at the bottom.
+//! 这是 oxc linter 的核心文件，负责统一管理和注册所有 lint 规则。
 //!
-//! These modules are declared manually because `cargo fmt` stops formatting these files with they
-//! are inside a proc macro.
+//! ## 文件结构
+//!
+//! 1. **模块声明**：声明所有插件模块（eslint, typescript, react, jest 等）
+//! 2. **规则注册**：通过 `declare_all_lint_rules!` 宏统一注册所有规则
+//!
+//! ## 支持的插件
+//!
+//! - **eslint**: 基础的 JavaScript/ESLint 规则（200+ 条）
+//! - **typescript**: TypeScript 特定规则（80+ 条）
+//! - **react**: React 组件和 JSX 规则（40+ 条）
+//! - **react_perf**: React 性能优化规则
+//! - **jest**: Jest 测试框架规则（40+ 条）
+//! - **vitest**: Vitest 测试框架规则
+//! - **unicorn**: Unicorn 插件规则（100+ 条）
+//! - **import**: ES6 import/export 规则
+//! - **jsx_a11y**: JSX 无障碍访问规则
+//! - **nextjs**: Next.js 框架特定规则
+//! - **jsdoc**: JSDoc 注释规则
+//! - **promise**: Promise 使用规则
+//! - **node**: Node.js 特定规则
+//! - **vue**: Vue 框架规则
+//! - **oxc**: Oxc 自定义规则
+//!
+//! ## 作用
+//!
+//! 1. **统一注册点**：所有规则都必须在这里注册才能被 linter 使用
+//! 2. **类型生成**：通过宏生成 `RuleEnum` 枚举，提供类型安全的规则访问
+//! 3. **规则发现**：其他模块可以通过 `RULES` 静态变量访问所有规则
+//! 4. **运行时分发**：为规则执行提供高性能的 match 分发机制
+//!
+//! ## 添加新规则
+//!
+//! 要添加新规则，需要完成以下步骤：
+//!
+//! 1. 在对应的插件模块中实现规则（如 `mod eslint { pub mod my_new_rule; }`）
+//! 2. 确保规则实现了 `Rule` trait
+//! 3. 在此文件中声明模块（已在模板中）并在宏中注册（`eslint::my_new_rule,`）
+//! 4. 重新编译，宏会自动生成对应的枚举变体和方法
+//!
+//! ## 注意事项
+//!
+//! - 模块声明是手动进行的，因为 `cargo fmt` 无法格式化 proc macro 内的内容
+//! - 规则列表是有序的，每个规则都有唯一的索引 ID
+//! - 规则总数约 600+ 条，覆盖 JavaScript/TypeScript 开发的各个方面
 
 /// <https://github.com/import-js/eslint-plugin-import>
 mod import {
@@ -626,6 +668,28 @@ mod vue {
     pub mod valid_define_emits;
 }
 
+// 声明所有 lint 规则并生成 RuleEnum 枚举
+//
+// 注意：文档注释会被宏吞掉，因此使用普通注释
+//
+// 作用：
+// 1. 统一注册：将分散在各个模块中的所有 lint 规则统一注册到一个枚举中
+// 2. 生成枚举：自动生成 RuleEnum 枚举，包含所有规则的具体实现
+// 3. 编译时分发：通过枚举实现零成本的运行时多态，绕过对象安全限制
+// 4. 生成静态表：创建一个全局的 RULES 静态变量，包含所有规则实例
+//
+// 工作原理：
+// - 对于每个传入的规则路径（如 eslint::no_console），宏会：
+//   - 解析路径并提取插件名（eslint）和规则名（no_console）
+//   - 生成对应的枚举变体（如 EslintNoConsole）
+//   - 为每个规则生成唯一 ID（从 0 开始的索引）
+//   - 实现 RuleEnum 的通用方法（id, name, category, plugin_name 等）
+//   - 实现规则执行的动态分发方法（run, run_on_symbol, run_once 等）
+//
+// 添加新规则步骤：
+// 1. 在对应的模块中实现规则（如 mod eslint { pub mod my_new_rule; }）
+// 2. 在此宏调用中添加规则路径（如 eslint::my_new_rule,）
+// 3. 重新编译，宏会自动生成对应的枚举变体和方法
 oxc_macros::declare_all_lint_rules! {
     eslint::array_callback_return,
     eslint::arrow_body_style,
