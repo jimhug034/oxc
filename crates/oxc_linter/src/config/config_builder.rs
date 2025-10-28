@@ -1,3 +1,54 @@
+//! # ConfigStoreBuilder - 配置构建器
+//!
+//! 这是 Oxc linter 配置系统的核心组件，负责从配置文件（`.oxlintrc.json`）构建最终的执行配置。
+//!
+//! ## 主要功能
+//!
+//! 1. **解析配置文件**：支持 JSON、YAML 等格式的配置文件
+//! 2. **处理继承**：支持 `extends` 字段，从多个配置文件继承和合并设置
+//! 3. **加载插件**：加载内置插件和外部插件（如 ESLint 插件）
+//! 4. **配置规则**：设置规则的严重程度（allow/warn/deny/error）
+//! 5. **处理覆盖**：支持基于文件路径的规则覆盖配置
+//!
+//! ## 工作流程
+//!
+//! ```text
+//! 配置文件 (Oxlintrc)
+//!     ↓
+//! 1. 解析 extends 继承链
+//!     ↓
+//! 2. 加载外部插件
+//!     ↓
+//! 3. 应用规则配置
+//!     ↓
+//! 4. 处理类别过滤器
+//!     ↓
+//! 5. 处理覆盖配置
+//!     ↓
+//! ConfigStoreBuilder
+//!     ↓
+//! build()
+//!     ↓
+//! Config (最终配置)
+//! ```
+//!
+//! ## 使用示例
+//!
+//! ```rust,ignore
+//! // 从配置文件创建
+//! let config = ConfigStoreBuilder::from_oxlintrc(true, oxlintrc, None, &mut store)
+//!     .unwrap()
+//!     .build(&store)
+//!     .unwrap();
+//!
+//! // 手动构建
+//! let config = ConfigStoreBuilder::default()
+//!     .with_filter(&LintFilter::warn(RuleCategory::Correctness))
+//!     .with_filter(&LintFilter::deny("no-console"))
+//!     .build(&store)
+//!     .unwrap();
+//! ```
+
 use std::{
     fmt::{self, Debug, Display},
     path::{Path, PathBuf},
@@ -27,16 +78,52 @@ use super::{
     config_store::{ResolvedOxlintOverride, ResolvedOxlintOverrideRules, ResolvedOxlintOverrides},
 };
 
+/// 配置构建器，用于构建 linter 的最终配置
+///
+/// # 核心职责
+///
+/// 这个构建器负责：
+/// - 解析和合并配置文件
+/// - 加载和初始化插件
+/// - 应用规则配置
+/// - 处理文件覆盖
+///
+/// # 使用模式
+///
+/// 构建器采用建造者模式（Builder Pattern），允许链式调用：
+/// ```rust,ignore
+/// let config = ConfigStoreBuilder::default()
+///     .with_filter(...)
+///     .with_overrides(...)
+///     .build(&store)
+///     .unwrap();
+/// ```
+///
+/// # 注意事项
+///
+/// - **必须调用 `build()`**：构建器被标记为 `#[must_use]`，忘记调用会编译期警告
+/// - **配置不可变**：每次调用 `with_*` 方法都会创建新的构建器实例
+/// - **延迟构建**：只有在调用 `build()` 时才会应用所有配置并创建最终配置
 #[must_use = "You dropped your builder without building a Linter! Did you mean to call .build()?"]
 pub struct ConfigStoreBuilder {
+    /// 内置规则的配置映射：规则 -> 严重程度
     pub(super) rules: FxHashMap<RuleEnum, AllowWarnDeny>,
+
+    /// 外部插件规则的配置映射：规则ID -> 严重程度
     pub(super) external_rules: FxHashMap<ExternalRuleId, AllowWarnDeny>,
+
+    /// linter 配置（插件、设置、环境变量等）
     config: LintConfig,
+
+    /// 规则类别的配置（correctness, suspicious, performance 等）
     categories: OxlintCategories,
+
+    /// 基于文件路径的规则覆盖配置
     overrides: OxlintOverrides,
 
-    // Collect all `extends` file paths for the language server.
-    // The server will tell the clients to watch for the extends files.
+    /// 收集所有被 `extends` 引用的文件路径
+    ///
+    /// 语言服务器用这些路径来监听文件变化，当配置文件被修改时重新加载配置
     pub extended_paths: Vec<PathBuf>,
 }
 
@@ -358,31 +445,73 @@ impl ConfigStoreBuilder {
     /// 应用单个过滤器配置
     ///
     /// 根据过滤器的类型和严重程度（allow/warn/deny）来修改规则配置
+    ///
+    /// # 工作原理
+    ///
+    /// 过滤器可以是以下类型：
+    /// - **Category**：按规则类别（如 correctness, suspicious）
+    /// - **Rule**：指定插件和规则名（如 "eslint/no-console"）
+    /// - **Generic**：仅规则名（如 "no-console"）
+    /// - **All**：所有规则
+    ///
+    /// # 行为说明
+    ///
+    /// - **Warn/Deny**：启用规则并设置严重程度（使用 `upsert_where`）
+    /// - **Allow**：禁用规则（从 `rules` map 中移除）
+    ///
+    /// # 示例
+    ///
+    /// ```rust,ignore
+    /// // 警告所有 correctness 类别的规则
+    /// builder.with_filter(&LintFilter::warn(RuleCategory::Correctness));
+    ///
+    /// // 禁止某个特定规则
+    /// builder.with_filter(&LintFilter::deny("no-console"));
+    ///
+    /// // 禁用所有规则
+    /// builder.with_filter(&LintFilter::allow_all());
+    /// ```
     pub fn with_filter(mut self, filter: &LintFilter) -> Self {
         let (severity, filter) = filter.into();
 
         match severity {
+            // 启用规则（warn 或 deny）
             AllowWarnDeny::Deny | AllowWarnDeny::Warn => match filter {
                 LintFilterKind::Category(category) => {
+                    // 按类别筛选：匹配特定类别的所有规则
                     self.upsert_where(severity, |r| r.category() == *category);
                 }
                 LintFilterKind::Rule(plugin, rule) => {
+                    // 指定插件和规则名：精确匹配
                     self.upsert_where(severity, |r| r.plugin_name() == plugin && r.name() == rule);
                 }
-                LintFilterKind::Generic(name) => self.upsert_where(severity, |r| r.name() == name),
+                LintFilterKind::Generic(name) => {
+                    // 仅规则名：匹配所有插件中同名的规则
+                    self.upsert_where(severity, |r| r.name() == name);
+                }
                 LintFilterKind::All => {
+                    // 所有规则：排除 nursery 类别的实验性规则
                     self.upsert_where(severity, |r| r.category() != RuleCategory::Nursery);
                 }
             },
+            // 禁用规则（allow）
             AllowWarnDeny::Allow => match filter {
                 LintFilterKind::Category(category) => {
+                    // 禁用特定类别的所有规则
                     self.rules.retain(|rule, _| rule.category() != *category);
                 }
                 LintFilterKind::Rule(plugin, rule) => {
+                    // 禁用指定的规则
                     self.rules.retain(|r, _| r.plugin_name() != plugin || r.name() != rule);
                 }
-                LintFilterKind::Generic(name) => self.rules.retain(|rule, _| rule.name() != name),
-                LintFilterKind::All => self.rules.clear(),
+                LintFilterKind::Generic(name) => {
+                    // 禁用所有同名规则
+                    self.rules.retain(|rule, _| rule.name() != name);
+                }
+                LintFilterKind::All => {
+                    // 禁用所有规则
+                    self.rules.clear();
+                }
             },
         }
 
@@ -423,17 +552,41 @@ impl ConfigStoreBuilder {
         }
     }
 
+    /// 根据条件批量更新或插入规则配置
+    ///
+    /// # 工作原理
+    ///
+    /// 1. 获取所有可用规则（基于当前启用的插件）
+    /// 2. 使用 `query` 闭包筛选需要配置的规则
+    /// 3. 对于每个匹配的规则：
+    ///    - 如果规则已存在：更新其严重程度
+    ///    - 如果规则不存在：插入新规则和严重程度
+    ///
+    /// # 参数
+    ///
+    /// - `severity`: 要设置的严重程度
+    /// - `query`: 一个闭包，用于筛选需要配置的规则
+    ///
+    /// # 示例
+    ///
+    /// ```rust,ignore
+    /// // 将所有 correctness 规则的严重程度设置为 Deny
+    /// builder.upsert_where(AllowWarnDeny::Deny, |r| r.category() == RuleCategory::Correctness);
+    /// ```
     fn upsert_where<F>(&mut self, severity: AllowWarnDeny, query: F)
     where
         F: Fn(&&RuleEnum) -> bool,
     {
+        // 获取所有可用规则（基于当前插件配置）
         let all_rules = self.get_all_rules();
-        // NOTE: we may want to warn users if they're configuring a rule that does not exist.
-        let rules_to_configure = all_rules.iter().filter(query);
-        for rule in rules_to_configure {
-            // If the rule is already in the list, just update its severity.
-            // Otherwise, add it to the map.
 
+        // 使用查询条件筛选需要配置的规则
+        // 注意：我们可能应该警告用户配置了不存在的规则
+        let rules_to_configure = all_rules.iter().filter(query);
+
+        for rule in rules_to_configure {
+            // 如果规则已存在，更新其严重程度
+            // 否则，插入新规则
             if let Some(existing_rule) = self.rules.get_mut(rule) {
                 *existing_rule = severity;
             } else {
@@ -444,44 +597,79 @@ impl ConfigStoreBuilder {
 
     /// 从构建器的当前状态构建 [`Config`]
     ///
+    /// 这是构建流程的最后一步，将所有配置合并并创建最终的 `Config` 对象
+    ///
     /// # 工作流程
-    /// 1. 处理 Vitest 和 Jest 插件的兼容性
-    /// 2. 解析所有覆盖配置
-    /// 3. 过滤掉已禁用插件的规则
-    /// 4. 对规则进行排序
-    /// 5. 创建最终的 Config 对象
+    ///
+    /// 1. **处理插件兼容性**：Vitest 插件会隐式启用 Jest 插件
+    /// 2. **解析覆盖配置**：处理基于文件路径的规则覆盖
+    /// 3. **过滤规则**：移除已禁用插件的规则
+    /// 4. **排序规则**：按规则 ID 排序，确保执行顺序一致
+    /// 5. **创建配置**：生成最终的 `Config` 对象
+    ///
+    /// # 注意事项
+    ///
+    /// - 构建器在此方法中被消费（`self` 的所有权被转移）
+    /// - 规则会被排序以保持稳定的执行顺序
+    /// - 未启用的插件规则会被自动过滤掉
     ///
     /// # 错误
-    /// 如果有无法匹配的规则，返回 [`ConfigBuilderError::UnknownRules`]
+    ///
+    /// 如果有无法匹配的规则或外部规则查找失败，返回相应的错误
+    ///
+    /// # 示例
+    ///
+    /// ```rust,ignore
+    /// let config = ConfigStoreBuilder::default()
+    ///     .with_filter(&LintFilter::warn(RuleCategory::Correctness))
+    ///     .build(&external_plugin_store)
+    ///     .unwrap();
+    /// ```
     pub fn build(
         mut self,
         external_plugin_store: &ExternalPluginStore,
     ) -> Result<Config, ConfigBuilderError> {
-        // When a plugin gets disabled before build(), rules for that plugin aren't removed until
-        // with_filters() gets called. If the user never calls it, those now-undesired rules need
-        // to be taken out.
+        // 获取当前启用的插件
+        // 注意：如果插件在配置后被禁用，相关的规则需要在这里被过滤掉
         let mut plugins = self.plugins().builtin;
 
-        // Apply the same Vitest->Jest logic as in get_all_rules()
+        // ====================================================================
+        // 步骤 1: 处理插件兼容性
+        // ====================================================================
+        // Vitest 插件需要 Jest 插件支持，自动启用 Jest
         if plugins.contains(BuiltinLintPlugins::VITEST) {
             plugins = plugins.union(BuiltinLintPlugins::JEST);
         }
 
+        // ====================================================================
+        // 步骤 2: 解析覆盖配置
+        // ====================================================================
         let overrides = std::mem::take(&mut self.overrides);
         let resolved_overrides = self
             .resolve_overrides(overrides, external_plugin_store)
             .map_err(ConfigBuilderError::ExternalRuleLookupError)?;
 
+        // ====================================================================
+        // 步骤 3: 过滤和排序内置规则
+        // ====================================================================
+        // 只保留已启用插件的规则
         let mut rules: Vec<_> = self
             .rules
             .into_iter()
             .filter(|(r, _)| plugins.contains(r.plugin_name().into()))
             .collect();
+        // 按规则 ID 排序，确保执行顺序稳定
         rules.sort_unstable_by_key(|(r, _)| r.id());
 
+        // ====================================================================
+        // 步骤 4: 排序外部规则
+        // ====================================================================
         let mut external_rules: Vec<_> = self.external_rules.into_iter().collect();
         external_rules.sort_unstable_by_key(|(r, _)| *r);
 
+        // ====================================================================
+        // 步骤 5: 创建最终配置
+        // ====================================================================
         Ok(Config::new(rules, external_rules, self.categories, self.config, resolved_overrides))
     }
 
@@ -528,15 +716,31 @@ impl ConfigStoreBuilder {
     /// 为给定插件集中的所有 correctness 规则设置为 warn 级别
     ///
     /// 这是默认配置，用于确保重要的正确性规则默认被启用
+    ///
+    /// # 工作原理
+    ///
+    /// 1. 处理 Vitest 插件的特殊需求（需要 Jest 支持）
+    /// 2. 从全局 `RULES` 列表中筛选出 correctness 类别的规则
+    /// 3. 只包含已启用插件的规则
+    /// 4. 将所有规则设置为 `Warn` 级别
+    ///
+    /// # 注意事项
+    ///
+    /// - 这确保了 correctness 规则默认被启用
+    /// - 用户可以通过配置文件或过滤器禁用这些规则
+    /// - ESLint 的 correctness 规则无法被完全禁用（这是有意为之）
     fn warn_correctness(mut plugins: BuiltinLintPlugins) -> FxHashMap<RuleEnum, AllowWarnDeny> {
+        // Vitest 插件需要 Jest 插件支持
         if plugins.contains(BuiltinLintPlugins::VITEST) {
             plugins = plugins.union(BuiltinLintPlugins::JEST);
         }
+
+        // 从全局规则列表中筛选并配置 correctness 规则
         RULES
             .iter()
             .filter(|rule| {
-                // NOTE: this logic means there's no way to disable ESLint
-                // correctness rules. I think that's fine for now.
+                // 只包含 correctness 类别的规则
+                // 并且该规则所属的插件已被启用
                 rule.category() == RuleCategory::Correctness
                     && plugins.contains(BuiltinLintPlugins::from(rule.plugin_name()))
             })
@@ -652,17 +856,42 @@ impl Debug for ConfigStoreBuilder {
 }
 
 /// 从 [`Oxlintrc`] 构建 [`Config`] 时可能发生的错误
+///
+/// # 错误类型
+///
+/// - **UnknownRules**: 配置文件中引用了不存在的规则
+/// - **InvalidConfigFile**: 配置文件格式错误或无法解析
+/// - **PluginLoadFailed**: 外部插件加载失败（通常是路径或依赖问题）
+/// - **ExternalRuleLookupError**: 外部规则查找失败
+/// - **NoExternalLinterConfigured**: 需要外部 linter 但未配置
 #[derive(Eq, PartialEq, Debug, Clone)]
 pub enum ConfigBuilderError {
     /// 存在无法匹配到任何已知插件/规则的未知规则
+    ///
+    /// 当配置文件中指定了不存在的规则时会发生此错误
     UnknownRules { rules: Vec<ESLintRule> },
+
     /// 引用的配置文件由于某种原因无效
+    ///
+    /// 常见原因：
+    /// - 文件不存在
+    /// - JSON/YAML 格式错误
+    /// - 文件权限问题
     InvalidConfigFile { file: String, reason: String },
+
     /// 外部插件加载失败
+    ///
+    /// 加载外部插件（如 ESLint 插件）时出错
     PluginLoadFailed { plugin_specifier: String, error: String },
+
     /// 外部规则查找错误
+    ///
+    /// 在外部插件中查找规则定义时出错
     ExternalRuleLookupError(ExternalRuleLookupError),
+
     /// 未配置外部 linter
+    ///
+    /// 配置文件需要外部 linter 支持，但当前环境未配置外部 linter
     NoExternalLinterConfigured,
 }
 
