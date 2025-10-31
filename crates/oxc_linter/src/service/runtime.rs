@@ -534,16 +534,33 @@ impl Runtime {
         });
 
         Resolver::new(ResolveOptions {
-            // 支持的所有文件扩展名
+            // extensions: 按顺序尝试解析的文件扩展名列表
+            // 当导入 './foo' 时，会依次尝试 './foo.js', './foo.ts', './foo.jsx' 等
             extensions: VALID_EXTENSIONS.iter().map(|ext| format!(".{ext}")).collect(),
-            // package.json 中查找的主字段顺序
+
+            // main_fields: 解析包时在 package.json 中查找的字段顺序
+            // 优先使用 "module" 字段（ESM 入口），其次使用 "main" 字段（CommonJS 入口）
             main_fields: vec!["module".into(), "main".into()],
-            // 支持的导出条件
+
+            // condition_names: package.json 的 "exports" 字段中的条件名称
+            // 用于匹配不同环境下的导出路径（如 "import" 用于 ESM，"require" 用于 CJS）
             condition_names: vec!["module".into(), "import".into()],
-            // TypeScript 扩展名别名
+
+            // extension_alias: 扩展名别名映射
+            // 允许 TypeScript 项目中使用 .js 导入实际的 .ts 文件
+            // 例如：import './foo.js' 会尝试解析 './foo.js' 或 './foo.ts'
             extension_alias,
-            // TypeScript 配置
+
+            // tsconfig: TypeScript 配置文件路径
+            // 用于解析路径别名（paths）和项目引用（references）
             tsconfig,
+
+            // 其他字段使用默认值：
+            // - alias: [] (无路径别名)
+            // - modules: ["node_modules"] (从 node_modules 查找模块)
+            // - symlinks: true (跟随符号链接)
+            // - fully_specified: false (允许省略扩展名)
+            // - builtin_modules: false (不解析 Node.js 内置模块)
             ..ResolveOptions::default()
         })
     }

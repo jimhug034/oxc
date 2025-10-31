@@ -85,12 +85,22 @@ fn size_asserts() {
     assert_eq!(size_of::<RuleEnum>(), 16);
 }
 
+/// `Linter` 是 Oxc lint 引擎的核心封装：
+///
+/// - 持有 `LintOptions` 用于控制修复策略、框架嗅探与指令上报
+/// - 缓存 `ConfigStore` 以便按文件解析和合并配置层级
+/// - 在启用 `oxlint2` 时桥接外部（JavaScript）规则引擎
+///
+/// 它负责根据传入路径解析配置、调度规则执行、并收集最终的诊断结果。
 #[derive(Debug, Clone)]
 #[expect(clippy::struct_field_names)]
 pub struct Linter {
+    /// Lint 行为的运行选项（修复模式、框架提示、指令上报策略等）。
     options: LintOptions,
+    /// 已解析的配置存储，负责按文件路径查找实际生效的规则集合。
     config: ConfigStore,
     #[cfg_attr(not(all(feature = "oxlint2", not(feature = "disable_oxlint2"))), expect(dead_code))]
+    /// 可选的外部（JavaScript）规则执行器，仅在启用 `oxlint2` 时使用。
     external_linter: Option<ExternalLinter>,
 }
 

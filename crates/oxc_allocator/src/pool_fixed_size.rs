@@ -19,32 +19,40 @@ use crate::{
 const TWO_GIB: usize = 1 << 31;
 const FOUR_GIB: usize = 1 << 32;
 
-/// A thread-safe pool for reusing [`Allocator`] instances to reduce allocation overhead.
+/// 线程安全的 [`Allocator`] 池，通过复用实例降低分配开销。
 ///
-/// Internally uses a `Vec` protected by a `Mutex` to store available allocators.
+/// 内部使用 `Mutex` 保护的 `Vec` 存储可用的分配器。
+///
+/// # 设计目标
+///
+/// - 避免频繁创建/销毁大块内存（每个分配器占用 2 GiB）
+/// - 支持多线程并发获取与归还分配器
+/// - 按需创建分配器，而非预先分配全部
 pub struct AllocatorPool {
-    /// Allocators in the pool
+    /// 池中可复用的分配器列表
     allocators: Mutex<Vec<FixedSizeAllocator>>,
-    /// ID to assign to next `Allocator` that's created
+    /// 下一个新建分配器的唯一 ID
     next_id: AtomicU32,
 }
 
 impl AllocatorPool {
-    /// Creates a new [`AllocatorPool`] for use across the specified number of threads.
+    /// 创建一个新的 [`AllocatorPool`]，用于指定数量的线程。
+    ///
+    /// 预留容量但不预先分配分配器，避免浪费内存（例如 language server 未启用 `import` 插件时）。
     pub fn new(thread_count: usize) -> AllocatorPool {
-        // Each allocator consumes a large block of memory, so create them on demand instead of upfront,
-        // in case not all threads end up being used (e.g. language server without `import` plugin)
+        // 每个分配器占用大量内存，因此按需创建而非预先分配，
+        // 以防部分线程未被使用（例如 language server 未启用 `import` 插件）
         let allocators = Vec::with_capacity(thread_count);
         AllocatorPool { allocators: Mutex::new(allocators), next_id: AtomicU32::new(0) }
     }
 
-    /// Retrieves an [`Allocator`] from the pool, or creates a new one if the pool is empty.
+    /// 从池中获取一个 [`Allocator`]，若池为空则创建新实例。
     ///
-    /// Returns an [`AllocatorGuard`] that gives access to the allocator.
+    /// 返回 [`AllocatorGuard`] 以提供对分配器的访问。
     ///
     /// # Panics
     ///
-    /// Panics if the underlying mutex is poisoned.
+    /// 若底层 mutex 被污染则 panic。
     pub fn get(&self) -> AllocatorGuard<'_> {
         let allocator = {
             let mut allocators = self.allocators.lock().unwrap();
@@ -52,11 +60,10 @@ impl AllocatorPool {
         };
 
         let allocator = allocator.unwrap_or_else(|| {
-            // Each allocator needs to have a unique ID, but the order those IDs are assigned in
-            // doesn't matter, so `Ordering::Relaxed` is fine
+            // 每个分配器需要唯一 ID，但分配顺序无关紧要，因此使用 `Ordering::Relaxed`
             let id = self.next_id.fetch_add(1, Ordering::Relaxed);
-            // Protect against IDs wrapping around.
-            // TODO: Does this work? Do we need it anyway?
+            // 防止 ID 溢出
+            // TODO: 这个检查是否有效？是否真的需要？
             assert!(id < u32::MAX, "Created too many allocators");
             FixedSizeAllocator::new(id)
         });
@@ -64,24 +71,26 @@ impl AllocatorPool {
         AllocatorGuard { allocator: ManuallyDrop::new(allocator), pool: self }
     }
 
-    /// Add a [`FixedSizeAllocator`] to the pool.
+    /// 将一个 [`FixedSizeAllocator`] 归还到池中。
     ///
-    /// The `Allocator` should be empty, ready to be re-used.
+    /// 该分配器应已清空，准备好被复用。
     ///
     /// # Panics
     ///
-    /// Panics if the underlying mutex is poisoned.
+    /// 若底层 mutex 被污染则 panic。
     fn add(&self, allocator: FixedSizeAllocator) {
         let mut allocators = self.allocators.lock().unwrap();
         allocators.push(allocator);
     }
 }
 
-/// A guard object representing exclusive access to an [`Allocator`] from the pool.
+/// 守卫对象，代表对池中 [`Allocator`] 的独占访问。
 ///
-/// On drop, the `Allocator` is reset and returned to the pool.
+/// 当 drop 时，`Allocator` 会被重置并归还到池中。
 pub struct AllocatorGuard<'alloc_pool> {
+    /// 从池中借出的分配器（使用 `ManuallyDrop` 防止自动释放）
     allocator: ManuallyDrop<FixedSizeAllocator>,
+    /// 所属的池引用
     pool: &'alloc_pool AllocatorPool,
 }
 
@@ -94,33 +103,33 @@ impl Deref for AllocatorGuard<'_> {
 }
 
 impl Drop for AllocatorGuard<'_> {
-    /// Return [`Allocator`] back to the pool.
+    /// 将 [`Allocator`] 归还到池中。
     fn drop(&mut self) {
-        // SAFETY: After taking ownership of the `FixedSizeAllocator`, we do not touch the `ManuallyDrop` again
+        // SAFETY: 取得 `FixedSizeAllocator` 的所有权后，不再访问 `ManuallyDrop`
         let mut allocator = unsafe { ManuallyDrop::take(&mut self.allocator) };
         allocator.reset();
         self.pool.add(allocator);
     }
 }
 
-/// Metadata about a [`FixedSizeAllocator`].
+/// [`FixedSizeAllocator`] 的元数据。
 ///
-/// Is stored in the memory backing the [`FixedSizeAllocator`], after `RawTransferMetadata`,
-/// which is after the section of the allocation which [`Allocator`] uses for its chunk.
+/// 存储在 [`FixedSizeAllocator`] 的内存块中，位于 `RawTransferMetadata` 之后，
+/// 即 [`Allocator`] chunk 使用区域之后。
 #[ast]
 pub struct FixedSizeAllocatorMetadata {
-    /// ID of this allocator
+    /// 分配器的唯一 ID
     pub id: u32,
-    /// Pointer to start of original allocation backing the `FixedSizeAllocator`
+    /// 指向 `FixedSizeAllocator` 原始分配起始位置的指针
     pub alloc_ptr: NonNull<u8>,
-    /// `true` if both Rust and JS currently hold references to this `FixedSizeAllocator`.
+    /// 若 Rust 和 JS 同时持有对此 `FixedSizeAllocator` 的引用，则为 `true`。
     ///
-    /// * `false` initially.
-    /// * Set to `true` when buffer is shared with JS.
-    /// * When JS garbage collector collects the buffer, set back to `false` again.
-    ///   Memory will be freed when the `FixedSizeAllocator` is dropped on Rust side.
-    /// * Also set to `false` if `FixedSizeAllocator` is dropped on Rust side.
-    ///   Memory will be freed in finalizer when JS garbage collector collects the buffer.
+    /// * 初始为 `false`。
+    /// * 当 buffer 与 JS 共享时设为 `true`。
+    /// * 当 JS 垃圾回收器回收 buffer 时重新设为 `false`。
+    ///   内存将在 Rust 侧 drop `FixedSizeAllocator` 时释放。
+    /// * 若 Rust 侧 drop `FixedSizeAllocator` 时也设为 `false`。
+    ///   内存将在 JS 垃圾回收器回收 buffer 时的 finalizer 中释放。
     pub is_double_owned: AtomicBool,
 }
 
@@ -142,36 +151,36 @@ pub struct FixedSizeAllocatorMetadata {
 const ALLOC_SIZE: usize = BLOCK_SIZE + TWO_GIB;
 const ALLOC_ALIGN: usize = TWO_GIB;
 
-/// Layout of backing allocations for fixed-size allocators.
+/// 固定大小分配器的底层分配布局。
 pub const ALLOC_LAYOUT: Layout = match Layout::from_size_align(ALLOC_SIZE, ALLOC_ALIGN) {
     Ok(layout) => layout,
     Err(_) => unreachable!(),
 };
 
-/// Structure which wraps an [`Allocator`] with fixed size of 2 GiB - 16, and aligned on 4 GiB.
+/// 封装一个固定大小为 2 GiB - 16 字节、对齐到 4 GiB 的 [`Allocator`] 的结构体。
 ///
-/// # Allocation strategy
+/// # 分配策略
 ///
-/// To achieve this, we manually allocate memory to back the `Allocator`'s single chunk,
-/// and to store other metadata.
+/// 为实现此目标，我们手动分配内存以支持 `Allocator` 的单个 chunk，
+/// 并存储其他元数据。
 ///
-/// We over-allocate 4 GiB, and then use only half of that allocation - either the 1st half,
-/// or the 2nd half, depending on the alignment of the allocation received from `alloc.alloc()`.
-/// One of those halves will be aligned on 4 GiB, and that's the one we use.
+/// 我们过度分配 4 GiB，然后仅使用其中一半 - 第 1 半或第 2 半，
+/// 取决于从 `alloc.alloc()` 收到的分配的对齐方式。
+/// 其中一半必定对齐到 4 GiB，我们使用那一半。
 ///
-/// Inner `Allocator` is wrapped in `ManuallyDrop` to prevent it freeing the memory itself,
-/// and `FixedSizeAllocator` has a custom `Drop` impl which frees the whole of the original allocation.
+/// 内部 `Allocator` 被包装在 `ManuallyDrop` 中以防止其自行释放内存，
+/// `FixedSizeAllocator` 有自定义的 `Drop` 实现来释放整个原始分配。
 ///
-/// We allocate via `System` allocator, bypassing any registered alternative global allocator
-/// (e.g. Mimalloc in linter). Mimalloc complains that it cannot serve allocations with high alignment,
-/// and presumably it's pointless to try to obtain such large allocations from a thread-local heap,
-/// so better to go direct to the system allocator anyway.
+/// 我们通过 `System` 分配器分配，绕过任何已注册的替代全局分配器
+/// （例如 linter 中的 Mimalloc）。Mimalloc 抱怨无法提供高对齐分配，
+/// 并且从线程本地堆获取如此大的分配可能毫无意义，
+/// 因此最好直接使用系统分配器。
 ///
-/// # Regions of the allocated memory
+/// # 已分配内存的区域
 ///
-/// 2 GiB of the allocated memory is not used at all (see above).
+/// 已分配内存中有 2 GiB 完全未使用（见上文）。
 ///
-/// The remaining 2 GiB - 16 bytes, which *is* used, is split up as follows:
+/// 剩余的 2 GiB - 16 字节（实际使用的部分）划分如下：
 ///
 /// ```txt
 ///                                                         WHOLE BLOCK - aligned on 4 GiB
@@ -190,21 +199,21 @@ pub const ALLOC_LAYOUT: Layout = match Layout::from_size_align(ALLOC_SIZE, ALLOC
 /// <----------------------------------------------->       Buffer sent to JS (`BUFFER_SIZE` bytes)
 /// ```
 ///
-/// Note that the buffer sent to JS includes both the `Allocator` chunk, and `RawTransferMetadata`,
-/// but does NOT include `FixedSizeAllocatorMetadata`.
+/// 注意：发送到 JS 的 buffer 包含 `Allocator` chunk 和 `RawTransferMetadata`，
+/// 但不包含 `FixedSizeAllocatorMetadata`。
 ///
-/// The end of the region used for `Allocator` chunk must be aligned on `Allocator::RAW_MIN_ALIGN` (16),
-/// due to the requirements of Bumpalo. We manage that by:
-/// * `BLOCK_SIZE` is a multiple of 16.
-/// * `RawTransferMetadata` is 16 bytes.
-/// * Size of `FixedSizeAllocatorMetadata` is rounded up to a multiple of 16.
+/// `Allocator` chunk 使用区域的末尾必须对齐到 `Allocator::RAW_MIN_ALIGN` (16)，
+/// 这是 Bumpalo 的要求。我们通过以下方式实现：
+/// * `BLOCK_SIZE` 是 16 的倍数。
+/// * `RawTransferMetadata` 是 16 字节。
+/// * `FixedSizeAllocatorMetadata` 的大小向上舍入为 16 的倍数。
 pub struct FixedSizeAllocator {
-    /// `Allocator` which utilizes part of the original allocation
+    /// 利用原始分配的一部分的 `Allocator`
     allocator: ManuallyDrop<Allocator>,
 }
 
 impl FixedSizeAllocator {
-    /// Create a new [`FixedSizeAllocator`].
+    /// 创建一个新的 [`FixedSizeAllocator`]。
     #[expect(clippy::items_after_statements)]
     pub fn new(id: u32) -> Self {
         // Only support little-endian systems. `Allocator::from_raw_parts` includes this same assertion.
@@ -274,7 +283,7 @@ impl FixedSizeAllocator {
         Self { allocator }
     }
 
-    /// Reset this [`FixedSizeAllocator`].
+    /// 重置此 [`FixedSizeAllocator`]。
     fn reset(&mut self) {
         // Set cursor back to end
         self.allocator.reset();
@@ -304,21 +313,21 @@ impl Drop for FixedSizeAllocator {
     }
 }
 
-/// Deallocate memory backing a `FixedSizeAllocator` if it's not double-owned
-/// (both owned by a `FixedSizeAllocator` on Rust side *and* held as a buffer on JS side).
+/// 若 `FixedSizeAllocator` 未被双重拥有，则释放其底层内存
+/// （双重拥有是指 Rust 侧的 `FixedSizeAllocator` 和 JS 侧的 buffer 同时持有）。
 ///
-/// If it is double-owned, don't deallocate the memory but set the flag that it's no longer double-owned
-/// so next call to this function will deallocate it.
+/// 若是双重拥有，则不释放内存，但设置标志表示不再双重拥有，
+/// 以便下次调用此函数时释放。
 ///
 /// # SAFETY
 ///
-/// This function must be called only when either:
-/// 1. The corresponding `FixedSizeAllocator` is dropped on Rust side. or
-/// 2. The buffer on JS side corresponding to this `FixedSizeAllocatorMetadata` is garbage collected.
+/// 此函数只能在以下情况下调用：
+/// 1. Rust 侧对应的 `FixedSizeAllocator` 被 drop。或
+/// 2. JS 侧对应此 `FixedSizeAllocatorMetadata` 的 buffer 被垃圾回收。
 ///
-/// Calling this function in any other circumstances would result in a double-free.
+/// 在任何其他情况下调用此函数会导致双重释放。
 ///
-/// `metadata_ptr` must point to a valid `FixedSizeAllocatorMetadata`.
+/// `metadata_ptr` 必须指向有效的 `FixedSizeAllocatorMetadata`。
 pub unsafe fn free_fixed_size_allocator(metadata_ptr: NonNull<FixedSizeAllocatorMetadata>) {
     // Get pointer to start of original allocation from `FixedSizeAllocatorMetadata`
     let alloc_ptr = {
@@ -354,12 +363,12 @@ pub unsafe fn free_fixed_size_allocator(metadata_ptr: NonNull<FixedSizeAllocator
 }
 
 impl Allocator {
-    /// Get pointer to the `FixedSizeAllocatorMetadata` for this [`Allocator`].
+    /// 获取此 [`Allocator`] 的 `FixedSizeAllocatorMetadata` 指针。
     ///
     /// # SAFETY
-    /// * This `Allocator` must have been created by a `FixedSizeAllocator`.
-    /// * This pointer must not be used to create a mutable reference to the `FixedSizeAllocatorMetadata`,
-    ///   only immutable references.
+    /// * 此 `Allocator` 必须由 `FixedSizeAllocator` 创建。
+    /// * 此指针不得用于创建对 `FixedSizeAllocatorMetadata` 的可变引用，
+    ///   只能创建不可变引用。
     pub unsafe fn fixed_size_metadata_ptr(&self) -> NonNull<FixedSizeAllocatorMetadata> {
         // SAFETY: Caller guarantees this `Allocator` was created by a `FixedSizeAllocator`.
         //
